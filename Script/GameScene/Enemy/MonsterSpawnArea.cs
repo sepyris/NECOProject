@@ -1,21 +1,27 @@
-﻿// MonsterSpawnArea.cs
-using UnityEngine;
+﻿using UnityEngine;
 using System.Collections;
 using System.Collections.Generic;
 
+/// <summary>
+/// 몬스터 스폰 영역 (여러 종류의 몬스터 지원)
+/// </summary>
 public class MonsterSpawnArea : MonoBehaviour
 {
     [Header("Spawn Settings")]
-    [SerializeField] private GameObject monsterPrefab;
+    [SerializeField] private List<GameObject> monsterPrefabs = new List<GameObject>(); // 몬스터 프리팹 리스트
     [SerializeField] private int maxMonsterCount = 5; // 최대 몬스터 수
     [SerializeField] private float spawnInterval = 10f; // 스폰 체크 간격 (초)
     [SerializeField] private int monstersPerSpawn = 1; // 한 번에 스폰할 몬스터 수
-    [Tooltip("부족 발생 시 한 번에 부족분을 전부 스폰할지 여부. 체크하면 monstersPerSpawn 무시.")]
+    [Tooltip("부족 발생 시 한 번에 부족분을 전부 스폰할지 여부")]
     [SerializeField] private bool spawnAllMissingOnShortage = true;
 
     [Header("Spawn Area")]
     [SerializeField] private bool useCircleArea = false; // false: Box, true: Circle
     [SerializeField] private float circleRadius = 5f; // Circle 반지름
+
+    [Header("Random Variation")]
+    [Tooltip("스폰 위치에 랜덤 오프셋 추가")]
+    [SerializeField] private float randomOffset = 0.5f;
 
     [Header("Debug")]
     [SerializeField] private bool showGizmos = true;
@@ -23,7 +29,7 @@ public class MonsterSpawnArea : MonoBehaviour
     private List<GameObject> spawnedMonsters = new List<GameObject>();
     private Collider2D areaCollider;
 
-    // 루트에 생성할 컨테이너 (스케일 영향 방지용)
+    // 루트에 생성할 컨테이너 (스케일 영향 방지)
     private Transform monstersContainer;
 
     void Awake()
@@ -32,24 +38,29 @@ public class MonsterSpawnArea : MonoBehaviour
         CreateMonstersContainer();
     }
 
-    // 인스펙터에서 값 변경 시 자동 보정
     private void OnValidate()
     {
         EnsureAreaCollider();
+
+        // 프리팹 리스트가 비어있으면 경고
+        if (monsterPrefabs.Count == 0)
+        {
+            Debug.LogWarning("[MonsterSpawnArea] 몬스터 프리팹 리스트가 비어있습니다!");
+        }
     }
 
-    // 컴포넌트 추가 시 기본 콜라이더 생성
     private void Reset()
     {
         EnsureAreaCollider();
     }
 
-    // 콜라이더 존재 확인 및 필요 시 생성
+    /// <summary>
+    /// 콜라이더 존재 확인 및 필요 시 생성
+    /// </summary>
     private void EnsureAreaCollider()
     {
         if (areaCollider != null) return;
 
-        // 이미 있는 콜라이더 우선 검색
         CircleCollider2D existingCircle = GetComponent<CircleCollider2D>();
         BoxCollider2D existingBox = GetComponent<BoxCollider2D>();
 
@@ -63,16 +74,18 @@ public class MonsterSpawnArea : MonoBehaviour
         else
         {
             BoxCollider2D box = existingBox ?? gameObject.AddComponent<BoxCollider2D>();
-            // 기본 사이즈가 0이면 합리적 기본값 설정(필요시 인스펙터에서 조정)
             if (box.size == Vector2.zero)
             {
-                box.size = Vector2.one * 5f;
+                box.size = Vector2.one * 10f;
             }
             box.isTrigger = true;
             areaCollider = box;
         }
     }
 
+    /// <summary>
+    /// 몬스터 컨테이너 생성
+    /// </summary>
     private void CreateMonstersContainer()
     {
         if (monstersContainer != null) return;
@@ -93,6 +106,13 @@ public class MonsterSpawnArea : MonoBehaviour
 
     void Start()
     {
+        // 몬스터 프리팹 리스트 검증
+        if (monsterPrefabs.Count == 0)
+        {
+            Debug.LogError("[MonsterSpawnArea] 몬스터 프리팹 리스트가 비어있습니다. 스폰할 수 없습니다.");
+            return;
+        }
+
         // 초기 스폰
         SpawnMonsters(maxMonsterCount);
 
@@ -112,7 +132,7 @@ public class MonsterSpawnArea : MonoBehaviour
             // 죽은 몬스터 참조 정리
             spawnedMonsters.RemoveAll(monster => monster == null);
 
-            // 몬스터 수 확인
+            // 현재 개수 확인
             int currentCount = spawnedMonsters.Count;
             int missing = Mathf.Max(0, maxMonsterCount - currentCount);
 
@@ -128,88 +148,115 @@ public class MonsterSpawnArea : MonoBehaviour
             }
             else
             {
-                // 기존 동작: monstersPerSpawn 단위로 보충
+                // monstersPerSpawn 단위로 보충
                 spawnCount = Mathf.Min(monstersPerSpawn, missing);
             }
 
             if (spawnCount > 0)
             {
-                Debug.Log($"[SpawnArea] 몬스터 부족 감지: {currentCount}/{maxMonsterCount}. {spawnCount}마리 스폰.");
+                Debug.Log($"[MonsterSpawnArea] 몬스터 부족 감지: {currentCount}/{maxMonsterCount}. {spawnCount}마리 스폰.");
                 SpawnMonsters(spawnCount);
             }
         }
     }
 
     /// <summary>
-    /// 몬스터 스폰
+    /// 몬스터 스폰 (랜덤 프리팹 선택)
     /// </summary>
     private void SpawnMonsters(int count)
     {
-        if (monsterPrefab == null)
+        if (monsterPrefabs.Count == 0)
         {
-            Debug.LogError("[SpawnArea] 몬스터 프리팹이 설정되지 않았습니다!");
+            Debug.LogError("[MonsterSpawnArea] 몬스터 프리팹 리스트가 비어있습니다!");
             return;
         }
 
         for (int i = 0; i < count; i++)
         {
-            // 현재 몬스터 수 확인
+            // 현재 개수 확인
             if (spawnedMonsters.Count >= maxMonsterCount)
             {
-                Debug.LogWarning($"[SpawnArea] 최대 몬스터 수({maxMonsterCount}) 도달. 스폰 중단.");
+                Debug.LogWarning($"[MonsterSpawnArea] 최대 몬스터 수({maxMonsterCount}) 도달. 스폰 중단.");
                 break;
             }
 
+            // 랜덤 위치
             Vector2 spawnPosition = GetRandomPositionInArea();
 
-            // 프리팹을 monstersContainer 아래에 인스턴스화(스케일 영향 없음)
-            GameObject monster = Instantiate(monsterPrefab, spawnPosition, Quaternion.identity, monstersContainer);
+            // 랜덤 프리팹 선택
+            GameObject randomPrefab = monsterPrefabs[Random.Range(0, monsterPrefabs.Count)];
+
+            if (randomPrefab == null)
+            {
+                Debug.LogError("[MonsterSpawnArea] 프리팹이 null입니다. 리스트를 확인하세요!");
+                continue;
+            }
+
+            // 프리팹 인스턴스화
+            GameObject monster = Instantiate(randomPrefab, spawnPosition, Quaternion.identity, monstersContainer);
 
             // 몬스터에게 스폰 영역 알려주기
             MonsterController monsterController = monster.GetComponent<MonsterController>();
             if (monsterController != null)
             {
-                monsterController.SetSpawnArea(areaCollider);
+                monsterController.SetSpawnArea(this, areaCollider);
+            }
+            else
+            {
+                Debug.LogError("[MonsterSpawnArea] MonsterController 컴포넌트를 찾을 수 없습니다!");
             }
 
             spawnedMonsters.Add(monster);
-            Debug.Log($"[SpawnArea] 몬스터 스폰 완료: {spawnPosition}");
+            Debug.Log($"[MonsterSpawnArea] 몬스터 스폰 완료: {randomPrefab.name} at {spawnPosition}");
         }
     }
 
     /// <summary>
-    /// 영역 내 랜덤 위치 반환 (콜라이더.bounds 기반)
+    /// 영역 내 랜덤 위치 반환
     /// </summary>
     private Vector2 GetRandomPositionInArea()
     {
+        Vector2 basePosition;
+
         if (areaCollider == null)
         {
             // 폴백: 기존 방식
             if (useCircleArea)
             {
                 Vector2 randomDirection = Random.insideUnitCircle * circleRadius;
-                return (Vector2)transform.position + randomDirection;
+                basePosition = (Vector2)transform.position + randomDirection;
             }
             else
             {
                 float randomX = Random.Range(-transform.localScale.x / 2f, transform.localScale.x / 2f);
                 float randomY = Random.Range(-transform.localScale.y / 2f, transform.localScale.y / 2f);
-                return (Vector2)transform.position + new Vector2(randomX, randomY);
+                basePosition = (Vector2)transform.position + new Vector2(randomX, randomY);
             }
-        }
-
-        Bounds b = areaCollider.bounds;
-        if (useCircleArea)
-        {
-            Vector2 randomDirection = Random.insideUnitCircle * circleRadius;
-            return (Vector2)b.center + randomDirection;
         }
         else
         {
-            float randomX = Random.Range(b.min.x, b.max.x);
-            float randomY = Random.Range(b.min.y, b.max.y);
-            return new Vector2(randomX, randomY);
+            Bounds b = areaCollider.bounds;
+            if (useCircleArea)
+            {
+                Vector2 randomDirection = Random.insideUnitCircle * circleRadius;
+                basePosition = (Vector2)b.center + randomDirection;
+            }
+            else
+            {
+                float randomX = Random.Range(b.min.x, b.max.x);
+                float randomY = Random.Range(b.min.y, b.max.y);
+                basePosition = new Vector2(randomX, randomY);
+            }
         }
+
+        // 랜덤 오프셋 추가
+        if (randomOffset > 0f)
+        {
+            Vector2 offset = Random.insideUnitCircle * randomOffset;
+            basePosition += offset;
+        }
+
+        return basePosition;
     }
 
     /// <summary>
@@ -220,7 +267,7 @@ public class MonsterSpawnArea : MonoBehaviour
         if (spawnedMonsters.Contains(monster))
         {
             spawnedMonsters.Remove(monster);
-            Debug.Log($"[SpawnArea] 몬스터 사망 알림 받음. 남은 몬스터: {spawnedMonsters.Count}/{maxMonsterCount}");
+            Debug.Log($"[MonsterSpawnArea] 몬스터 사망 알림 받음. 남은 몬스터: {spawnedMonsters.Count}/{maxMonsterCount}");
         }
     }
 
@@ -247,7 +294,7 @@ public class MonsterSpawnArea : MonoBehaviour
             }
         }
         spawnedMonsters.Clear();
-        Debug.Log("[SpawnArea] 모든 몬스터 제거 완료.");
+        Debug.Log("[MonsterSpawnArea] 모든 몬스터 제거 완료.");
     }
 
     // 에디터용 기즈모 (스폰 영역 표시)
@@ -263,7 +310,6 @@ public class MonsterSpawnArea : MonoBehaviour
         }
         else
         {
-            // bounds가 있으면 bounds 크기로, 없으면 transform.localScale로 그림
             if (areaCollider != null)
             {
                 Bounds b = areaCollider.bounds;

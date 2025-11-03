@@ -1,12 +1,17 @@
 ﻿using UnityEngine;
 using UnityEngine.SceneManagement;
 using Definitions;
-public class PlayerSaveLoad {
+public class PlayerSaveLoad
+{
     private Transform playerTransform;
-    public PlayerSaveLoad(Transform playerTransform) {
+
+    public PlayerSaveLoad(Transform playerTransform)
+    {
         this.playerTransform = playerTransform;
     }
-    public void InitializePlayerState(string sceneName) {
+
+    public void InitializePlayerState(string sceneName)
+    {
         if (GameDataManager.Instance == null)
             return;
         string targetSpawnID = GameDataManager.Instance.nextSceneSpawnPointID;
@@ -23,7 +28,7 @@ public class PlayerSaveLoad {
             }
             if (spawn != Vector3.zero) {
                 playerTransform.position = spawn;
-                GameDataManager.Instance.nextSceneSpawnPointID = "";
+                //GameDataManager.Instance.nextSceneSpawnPointID = "";
                 data.positionX = spawn.x;
                 data.positionY = spawn.y;
                 data.positionZ = spawn.z;
@@ -38,7 +43,9 @@ public class PlayerSaveLoad {
         }
         RestoreSubSceneState(data);
     }
-    public void SaveStateBeforeDeactivation() {
+
+    public void SaveStateBeforeDeactivation()
+    {
         if (GameDataManager.Instance == null)
             return;
         string sceneName = "";
@@ -61,6 +68,7 @@ public class PlayerSaveLoad {
         };
         GameDataManager.Instance.SaveSubSceneState(data);
     }
+
     public void RestoreSubSceneState(SubSceneData data) {
         playerTransform.position = new Vector3(data.positionX, data.positionY, data.positionZ);
     }

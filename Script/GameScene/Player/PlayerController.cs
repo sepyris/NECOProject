@@ -24,7 +24,7 @@ public class PlayerController : MonoBehaviour
     // 모듈화된 클래스들
     private PlayerMovement movement;
     private PlayerAttack attack;
-    private PlayerInteraction interaction; // ⭐ 채집 + NPC 통합
+    private PlayerInteraction interaction;
     private PlayerAnimationController animationController;
     private PlayerSaveLoad saveLoad;
     private PlayerBoundaryLimiter boundaryLimiter;
@@ -33,25 +33,21 @@ public class PlayerController : MonoBehaviour
     private bool controlsLocked = false;
     public bool ControlsLocked => controlsLocked;
 
-    // ⭐ 공격 상태 확인용 프로퍼티
+    // 공격 상태 확인용 프로퍼티
     public bool IsAttacking => attack != null && attack.IsAttacking;
 
-    // ⭐ 채집 상태 확인용 프로퍼티
+    // 채집 상태 확인용 프로퍼티
     public bool IsGathering => interaction != null && interaction.IsGathering;
 
     public void SetControlsLocked(bool locked)
     {
         controlsLocked = locked;
 
-        // 각 모듈에 전달
         if (movement != null) movement.ControlsLocked = locked;
         if (attack != null) attack.ControlsLocked = locked;
         if (interaction != null) interaction.ControlsLocked = locked;
 
-        if (locked)
-        {
-            if (rb != null) rb.velocity = Vector2.zero;
-        }
+        if (locked && rb != null) rb.velocity = Vector2.zero;
     }
 
     void Awake()
@@ -59,7 +55,7 @@ public class PlayerController : MonoBehaviour
         if (Instance == null)
         {
             Instance = this;
-            DontDestroyOnLoad(this.gameObject);
+            DontDestroyOnLoad(gameObject);
 
             SceneManager.sceneLoaded -= OnSceneLoaded;
             SceneManager.sceneLoaded += OnSceneLoaded;
@@ -69,7 +65,7 @@ public class PlayerController : MonoBehaviour
             if (this.gameObject != Instance.gameObject)
             {
                 SceneManager.sceneLoaded -= OnSceneLoaded;
-                Destroy(this.gameObject);
+                Destroy(gameObject);
             }
         }
     }
@@ -79,7 +75,6 @@ public class PlayerController : MonoBehaviour
         InitializeComponents();
         InitializeModules();
 
-        // 현재 씬이 게임 씬이면 즉시 초기화
         Scene active = SceneManager.GetActiveScene();
         if (active.name.StartsWith(Def_Name.SCENE_NAME_START_MAP))
         {
@@ -89,28 +84,12 @@ public class PlayerController : MonoBehaviour
 
     private void InitializeComponents()
     {
-        if (rb == null)
-        {
-            rb = GetComponent<Rigidbody2D>();
-            if (rb == null)
-            {
-                Debug.LogError("[Player] Rigidbody2D를 찾을 수 없습니다!");
-            }
-        }
-
-        if (animator == null)
-        {
-            animator = GetComponent<Animator>();
-            if (animator == null)
-            {
-                Debug.LogWarning("[Player] Animator를 찾을 수 없습니다. 애니메이션이 재생되지 않습니다.");
-            }
-        }
+        if (rb == null) rb = GetComponent<Rigidbody2D>();
+        if (animator == null) animator = GetComponent<Animator>();
     }
 
     private void InitializeModules()
     {
-        // 각 모듈 생성 및 초기화
         movement = new PlayerMovement(rb);
         movement.MoveSpeed = moveSpeed;
 
@@ -126,95 +105,157 @@ public class PlayerController : MonoBehaviour
         attack.SetMovement(movement);
         attack.SetAnimationController(animationController);
 
-
-        // ⭐ 통합된 상호작용 모듈 (채집 + NPC)
         interaction = new PlayerInteraction(transform, animationController);
 
         saveLoad = new PlayerSaveLoad(transform);
         BoxCollider2D playerCollider = GetComponent<BoxCollider2D>();
-
-        // ⭐ 월드 경계 제한 모듈 초기화 (플레이어 콜라이더 포함)
         boundaryLimiter = new PlayerBoundaryLimiter(rb, playerCollider);
     }
 
     private void OnDestroy()
     {
-        if (Instance == this)
-        {
-            SceneManager.sceneLoaded -= OnSceneLoaded;
-        }
+        if (Instance == this) SceneManager.sceneLoaded -= OnSceneLoaded;
     }
-
     private void OnSceneLoaded(Scene scene, LoadSceneMode mode)
     {
+        Debug.LogWarning($"[PlayerController] OnSceneLoaded 호출! scene.name={scene.name}, SCENE_NAME_START_MAP={Def_Name.SCENE_NAME_START_MAP}");
+
         if (!scene.name.StartsWith(Def_Name.SCENE_NAME_START_MAP))
-        {
-            Debug.Log($"[Player] '{scene.name}'은 게임 컨텐츠 씬이 아님.");
             return;
+
+        rb = GetComponent<Rigidbody2D>();
+        Vector2 lastDirBeforeRegen = movement != null ? movement.LastMoveDirection : Vector2.right;
+
+        if (movement != null)
+        {
+            movement.rb = rb;
+            movement.MoveSpeed = moveSpeed;
+            movement.SetLastDirection(lastDirBeforeRegen);
         }
 
-        Debug.Log($"[Player] 씬 '{scene.name}' 로드 완료 → 플레이어 초기화.");
         if (saveLoad != null)
-        {
             saveLoad.InitializePlayerState(scene.name);
+
+        if (movement != null)
+        {
+            movement.SetLoadGuard();
+
+            Vector2 restoredInput = InputManager.GetSavedInputForSceneTransition();
+
+            Debug.LogWarning($"[OnSceneLoaded] 복원된 입력: {restoredInput}");
+            Debug.LogWarning($"[OnSceneLoaded] 현재 키 상태 - Right:{Input.GetKey(KeyCode.RightArrow)}, Left:{Input.GetKey(KeyCode.LeftArrow)}, Up:{Input.GetKey(KeyCode.UpArrow)}, Down:{Input.GetKey(KeyCode.DownArrow)}");
+
+            movement.currentInput = restoredInput;
+            movement.SetLastDirection(restoredInput);
+
+            if (rb != null)
+                rb.velocity = movement.currentInput * movement.MoveSpeed;
+
+            Debug.LogWarning($"[PlayerMovement Fix] 씬 로드 후 velocity 설정: {rb.velocity}");
+
+            // 클리어는 나중에 호출 - 주석 처리하거나 삭제
+            // InputManager.ClearSavedInput();
         }
-            
     }
 
     void Update()
     {
-        // F1 디버깅 키
         if (Input.GetKeyDown(KeyCode.F1))
         {
             if (LoadingScreenManager.Instance != null)
             {
                 LoadingScreenManager.Instance.ForceStopLoading();
-                Debug.Log("[Player] F1 키: 강제로 로딩 해제!");
             }
         }
 
-        // 로딩 중이면 입력 무시
-        if (LoadingScreenManager.Instance != null && LoadingScreenManager.Instance.IsLoading)
+        bool skipLoadingCheck = movement != null && movement.IsInLoadGuard;
+
+        if (!skipLoadingCheck && LoadingScreenManager.Instance != null && LoadingScreenManager.Instance.IsLoading)
         {
             if (rb != null) rb.velocity = Vector2.zero;
-            if (Time.frameCount % 60 == 0)
-            {
-                Debug.LogWarning("[Player] 로딩 중...");
-            }
             return;
         }
 
-        // 조작 잠금 상태면 입력 무시
         if (controlsLocked)
         {
             if (rb != null) rb.velocity = Vector2.zero;
             return;
         }
 
-        // 상호작용 입력 처리 (공격 중이 아닐 때만)
-        if (!attack.IsAttacking)
-        {
-            interaction.HandleInteractionInput();
-        }
-
-        // 공격 입력 처리
+        if (!attack.IsAttacking) interaction.HandleInteractionInput();
         attack.HandleAttackInput();
-
-        // ⭐ 매 프레임 가장 가까운 상호작용 대상 감지 (채집물 또는 NPC)
         interaction.UpdateNearestInteractable();
 
-        // 이동 입력 처리 (공격 중이 아닐 때만)
         if (!attack.IsAttacking)
         {
-            float horizontal = Input.GetAxisRaw(Def_Name.HORIZONTAL);
-            float vertical = Input.GetAxisRaw(Def_Name.VERTICAL);
-            Vector2 input = new Vector2(horizontal, vertical);
-            movement.UpdateMovement(input);
-        }
-        else
-        {
-            // 공격 중에는 이동 입력 무시
-            movement.UpdateMovement(Vector2.zero);
+            if (movement != null && movement.IsInLoadGuard)
+            {
+                float h = 0f;
+                float v = 0f;
+
+                if (Input.GetKey(KeyCode.LeftArrow)) h -= 1f;
+                if (Input.GetKey(KeyCode.RightArrow)) h += 1f;
+                if (Input.GetKey(KeyCode.UpArrow)) v += 1f;
+                if (Input.GetKey(KeyCode.DownArrow)) v -= 1f;
+
+                Vector2 realTimeInput = new Vector2(h, v);
+
+                if (realTimeInput.magnitude > 0.01f)
+                {
+                    movement.currentInput = realTimeInput.normalized;
+                    Debug.Log($"[Update] LoadGuard - 실시간 키 감지: {movement.currentInput}");
+                }
+                else
+                {
+                    Debug.Log($"[Update] LoadGuard - 저장된 입력 유지: {movement.currentInput}");
+                }
+
+                return;
+            }
+
+            if (movement != null && movement.IsInPostLoadWait)
+            {
+                Debug.Log($"[Update] PostLoadWait - 입력 유지: {movement.currentInput}");
+                InputManager.currentInput = movement.currentInput;
+                return;
+            }
+
+            // **추가: 일반 입력 갱신 전에 체크**
+            InputManager.UpdateInput();
+
+            // Input 시스템이 제대로 작동하지 않으면 마지막 입력 유지
+            if (InputManager.currentInput.magnitude < 0.01f && movement.currentInput.magnitude > 0.01f)
+            {
+                // 실제로 키가 눌려있는지 직접 확인
+                float h = 0f;
+                float v = 0f;
+
+                if (Input.GetKey(KeyCode.LeftArrow)) h -= 1f;
+                if (Input.GetKey(KeyCode.RightArrow)) h += 1f;
+                if (Input.GetKey(KeyCode.UpArrow)) v += 1f;
+                if (Input.GetKey(KeyCode.DownArrow)) v -= 1f;
+
+                Vector2 realTimeInput = new Vector2(h, v);
+
+                if (realTimeInput.magnitude > 0.01f)
+                {
+                    // 실제로 키가 눌려있으면 사용
+                    movement.currentInput = realTimeInput.normalized;
+                    InputManager.currentInput = movement.currentInput;
+                    Debug.LogWarning($"[Update] Input 시스템 복구 - 직접 체크: {movement.currentInput}");
+                }
+                else
+                {
+                    // 실제로도 키가 안 눌려있으면 정상적으로 멈춤
+                    movement.UpdateMovement();
+                    Debug.Log($"[Update] 일반 입력 처리 - 정상 멈춤");
+                }
+            }
+            else
+            {
+                movement.UpdateMovement();
+                Debug.Log($"[Update] 일반 입력 처리 - movement.currentInput: {movement.currentInput}, InputManager.currentInput: {InputManager.currentInput}");
+            }
         }
     }
 
@@ -222,22 +263,42 @@ public class PlayerController : MonoBehaviour
     {
         if (rb == null) return;
 
-        // 로딩 중이거나 조작 잠금 상태면 이동 정지
-        if ((LoadingScreenManager.Instance != null && LoadingScreenManager.Instance.IsLoading)
-            || controlsLocked)
+        bool isLockedOrLoading = (LoadingScreenManager.Instance != null && LoadingScreenManager.Instance.IsLoading) || controlsLocked;
+
+        if (movement != null && movement.IsInLoadGuard)
+        {
+            rb.velocity = movement.currentInput * movement.MoveSpeed;
+            movement.DecrementLoadGuard();
+
+            Debug.Log($"[FixedUpdate] LoadGuard 중 - currentInput: {movement.currentInput}, velocity: {rb.velocity}");
+            return;
+        }
+
+        // **추가: PostLoadWait 기간**
+        if (movement != null && movement.IsInPostLoadWait)
+        {
+            rb.velocity = movement.currentInput * movement.MoveSpeed;
+            movement.DecrementPostLoadWait();
+
+            Debug.Log($"[FixedUpdate] PostLoadWait 중 - currentInput: {movement.currentInput}, velocity: {rb.velocity}");
+            return;
+        }
+
+        if (isLockedOrLoading)
         {
             rb.velocity = Vector2.zero;
             return;
         }
 
-        // 이동 적용
+        Debug.Log($"[FixedUpdate] 일반 이동 - movement.currentInput: {movement.currentInput}, velocity 적용 전");
+
         movement.ApplyMovement();
-
-
         boundaryLimiter?.ApplyBoundaryLimit();
+
+        Debug.Log($"[FixedUpdate] 일반 이동 - velocity 적용 후: {rb.velocity}");
     }
 
-    // 외부에서 호출하는 메서드들
+
     public void SaveStateBeforeDeactivation()
     {
         saveLoad.SaveStateBeforeDeactivation();
@@ -253,19 +314,28 @@ public class PlayerController : MonoBehaviour
         animationController.PlayAnimation(triggerName);
     }
 
-    // ⭐ 플레이어 방향 설정 (채집, 상호작용 등에서 사용)
     public void SetFacingDirection(Vector2 direction)
     {
-        if (movement != null)
-        {
-            movement.SetLastDirection(direction);
-        }
+        if (movement != null) movement.SetLastDirection(direction);
 
-        // 스프라이트 반전 처리 (2D 게임용)
         SpriteRenderer spriteRenderer = GetComponent<SpriteRenderer>();
         if (spriteRenderer != null && Mathf.Abs(direction.x) > 0.1f)
-        {
             spriteRenderer.flipX = direction.x < 0;
+    }
+    public void RestoreInputAfterSceneLoad(Vector2 input)
+    {
+        Debug.LogWarning($"[PlayerController] RestoreInputAfterSceneLoad 호출: {input}");
+
+        if (movement != null)
+        {
+            movement.SetLoadGuard();
+            movement.currentInput = input;
+            movement.SetLastDirection(input);
+
+            if (rb != null)
+                rb.velocity = input * movement.MoveSpeed;
+
+            Debug.LogWarning($"[PlayerController] 입력 복원 완료: currentInput={movement.currentInput}, velocity={rb.velocity}");
         }
     }
 }

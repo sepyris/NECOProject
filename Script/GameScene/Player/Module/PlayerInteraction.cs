@@ -1,21 +1,28 @@
+using Definitions;
 using System.Collections;
 using UnityEngine;
-using Definitions;
 
 /// <summary>
 /// 플레이어의 채집 및 NPC 상호작용 관리
 /// </summary>
 public class PlayerInteraction
 {
-    private Transform playerTransform;
-    private PlayerAnimationController animationController;
+    private readonly Transform playerTransform;
+    private readonly PlayerAnimationController animationController;
 
     public bool ControlsLocked = false;
     public bool IsGathering { get; private set; } = false;
 
     private GatheringObject currentNearestGathering = null;
     private NPCController currentNearestNPC = null;
-    private float detectionRadius = 2.5f;
+    private readonly float detectionRadius = 2.5f;
+
+    [Header("Tool Inventory (예시)")]
+    [Tooltip("플레이어가 보유한 도구들 - 실제로는 인벤토리 시스템과 연동해야 함")]
+    [SerializeField] private bool hasPickaxe = false;
+    [SerializeField] private bool hasSickle = false;
+    [SerializeField] private bool hasFishingRod = false;
+    [SerializeField] private bool hasAxe = false;
 
     public PlayerInteraction(Transform playerTransform, PlayerAnimationController animController)
     {
@@ -57,7 +64,7 @@ public class PlayerInteraction
                 HideAllPrompts();
                 currentNearestGathering = closestGathering;
                 currentNearestNPC = null;
-                currentNearestGathering?.ShowPrompt();
+                currentNearestGathering.ShowPrompt();
             }
         }
         // NPC가 더 가까운 경우
@@ -68,7 +75,7 @@ public class PlayerInteraction
                 HideAllPrompts();
                 currentNearestNPC = closestNPC;
                 currentNearestGathering = null;
-                currentNearestNPC?.ShowPrompt();
+                currentNearestNPC.ShowPrompt();
             }
         }
         // 둘 다 없는 경우
@@ -119,8 +126,7 @@ public class PlayerInteraction
 
         foreach (var col in nearbyColliders)
         {
-            NPCController npc = col.GetComponent<NPCController>();
-            if (npc != null)
+            if (col.TryGetComponent<NPCController>(out var npc))
             {
                 float distance = Vector2.Distance(playerTransform.position, col.transform.position);
                 if (distance < closestDistance)
@@ -141,7 +147,6 @@ public class PlayerInteraction
     {
         currentNearestGathering?.HidePrompt();
         currentNearestGathering = null;
-
         currentNearestNPC?.HidePrompt();
         currentNearestNPC = null;
     }
@@ -193,8 +198,6 @@ public class PlayerInteraction
     /// </summary>
     private IEnumerator GatherCoroutine(GatheringObject targetObject)
     {
-        IsGathering = true;
-
         // 1. 채집물 방향으로 플레이어 회전
         Vector2 directionToTarget = (targetObject.transform.position - playerTransform.position).normalized;
         if (PlayerController.Instance != null)
@@ -209,22 +212,50 @@ public class PlayerInteraction
         // 3. 채집 애니메이션 실행
         animationController?.PlayAnimation("Gather");
 
-        // 4. 채집 진행 (3초 대기)
-        yield return new WaitForSeconds(3f);
+        // 4. 필요한 도구 확인
+        GatherToolType requiredTool = targetObject.GetRequiredTool();
+        bool hasRequiredTool = HasTool(requiredTool);
 
-        // 5. 실제 채집 처리
-        if (targetObject != null)
+        if (!hasRequiredTool && requiredTool != GatherToolType.None)
         {
-            targetObject.Gather();
+            Debug.LogWarning($"[PlayerGathering] 필요한 도구가 없습니다: {requiredTool}. 확률로 시도합니다.");
         }
 
-        // 6. 플레이어 조작 복구
+        // 5. CSV에서 채집 시간 가져오기
+        float gatherTime = targetObject.GetGatherTime();
+        Debug.Log($"[PlayerGathering] 채집 시작: {targetObject.GetGatherableName()} (소요 시간: {gatherTime}초, 도구: {(hasRequiredTool ? "있음" : "없음")})");
+
+        // 6. 채집 진행 (CSV 시간만큼 대기)
+        yield return new WaitForSeconds(gatherTime);
+
+        // 7. 실제 채집 처리 (도구 유무 전달)
+        if (targetObject != null)
+        {
+            targetObject.Gather(hasRequiredTool);
+        }
+
+        // 8. 플레이어 조작 복구
         animationController?.PlayAnimation("Idle");
         if (PlayerController.Instance != null)
             PlayerController.Instance.SetControlsLocked(false);
-
-        IsGathering = false;
         currentNearestGathering = null;
+    }
+
+    /// <summary>
+    /// 플레이어가 특정 도구를 가지고 있는지 확인
+    /// 실제로는 InventoryManager와 연동해야 함
+    /// </summary>
+    private bool HasTool(GatherToolType toolType)
+    {
+        return toolType switch
+        {
+            GatherToolType.Pickaxe => hasPickaxe,// 실제: InventoryManager.Instance.HasItem("pickaxe")
+            GatherToolType.Sickle => hasSickle,
+            GatherToolType.FishingRod => hasFishingRod,
+            GatherToolType.Axe => hasAxe,
+            GatherToolType.None => true,// 도구 불필요
+            _ => false,
+        };
     }
 
     /// <summary>

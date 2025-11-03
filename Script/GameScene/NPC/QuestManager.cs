@@ -2,9 +2,9 @@
 using UnityEngine;
 
 /// <summary>
-/// QuestManager (호환성 포함)
-/// - 멀티 목표/멀티 보상 구조 지원
-/// - 기존 코드에서 사용하던 UpdateKillProgress, UpdateItemProgress, UpdateDialogueProgress 등도 지원 (호환성 메서드)
+/// QuestManager (Collect와 Gather 구분)
+/// - Collect: 현재 인벤토리 포함, 이미 가지고 있으면 바로 완료
+/// - Gather: 퀘스트 수락 후 새로 획득한 아이템만 카운트
 /// </summary>
 public class QuestManager : MonoBehaviour
 {
@@ -38,7 +38,6 @@ public class QuestManager : MonoBehaviour
         }
         else
         {
-            // 기존 등록된 퀘스트가 있으면 덮어쓰기 없이 로그만 남김
             Debug.LogWarning($"[QuestManager] 이미 등록된 퀘스트입니다: {quest.questId}");
         }
     }
@@ -82,7 +81,62 @@ public class QuestManager : MonoBehaviour
         if (q.status == QuestStatus.Offered || q.status == QuestStatus.None)
         {
             q.status = QuestStatus.Accepted;
+
+            // ⭐ Collect 타입 목표는 현재 인벤토리 아이템으로 초기화 ⭐
+            InitializeCollectObjectives(q);
+
             Debug.Log($"[QuestManager] Quest Accepted: {questId}");
+        }
+    }
+
+    /// <summary>
+    /// Collect 타입 목표는 퀘스트 수락 시 현재 인벤토리를 확인하여 초기값 설정
+    /// </summary>
+    private void InitializeCollectObjectives(QuestData quest)
+    {
+        if (InventoryManager.Instance == null) return;
+
+        foreach (var obj in quest.objectives)
+        {
+            if (obj.type == QuestType.Collect)
+            {
+                // 현재 인벤토리에서 해당 아이템 개수 확인
+                int currentAmount = InventoryManager.Instance.GetItemQuantity(obj.targetId);
+
+                // 필요한 개수만큼만 카운트 (초과분은 무시)
+                obj.currentCount = Mathf.Min(currentAmount, obj.requiredCount);
+
+                Debug.Log($"[QuestManager] Collect 초기화: {obj.targetId} {obj.currentCount}/{obj.requiredCount} (인벤토리에 {currentAmount}개 보유)");
+            }
+            // Gather 타입은 0부터 시작 (기본값)
+        }
+
+        // ⭐ 초기화 후 완료 조건 체크 (상태는 Accepted 유지, 내부적으로만 완료 여부 확인) ⭐
+        CheckQuestCompletion(quest);
+    }
+
+    /// <summary>
+    /// 퀘스트 완료 조건 체크 (목표는 완료되지만 상태는 Accepted 유지)
+    /// </summary>
+    private void CheckQuestCompletion(QuestData quest)
+    {
+        if (quest.status != QuestStatus.Accepted) return;
+
+        if (quest.IsCompleted())
+        {
+            Debug.Log($"[QuestManager] 퀘스트 목표 달성: {quest.questId} (NPC에게 보고 필요)");
+            // ⭐ 상태는 Accepted 유지 - UI에서 "완료 가능" 표시만 함
+        }
+    }
+    public void ConfirmedQuestCompletion(string questId)
+    {
+        var quest = GetQuestData(questId);
+        if (quest.status != QuestStatus.Accepted) return;
+
+        if (quest.IsCompleted())
+        {
+            Debug.Log($"[QuestManager] 퀘스트 완료 확정: {quest.questId}");
+            quest.status = QuestStatus.Completed;
         }
     }
 
@@ -93,11 +147,27 @@ public class QuestManager : MonoBehaviour
 
         if (q.status == QuestStatus.Completed)
         {
-            // 보상 지급 (여기에 실제 인벤토리/골드 시스템 연동)
-            foreach (var r in q.rewards)
+            // 보상 지급
+            if (InventoryManager.Instance != null)
             {
-                Debug.Log($"[QuestManager] 보상 지급: {r.itemId} x{r.quantity}");
-                // 예: InventoryManager.Instance.AddItem(r.itemId, r.quantity);
+                foreach (var r in q.rewards)
+                {
+                    InventoryManager.Instance.AddItem(r.itemId, r.quantity);
+                    Debug.Log($"[QuestManager] 보상 지급: {r.itemId} x{r.quantity}");
+                }
+            }
+            // 경험치, 골드 지급 (실제 시스템과 연동)
+            if (q.rewardExp > 0)
+            {
+                Debug.Log($"[QuestManager] 경험치 보상: {q.rewardExp}");
+                ExperienceManager.Instance?.AddExp(q.rewardExp);
+                // PlayerStats.Instance.AddExp(q.rewardExp);
+            }
+
+            if (q.rewardGold > 0)
+            {
+                Debug.Log($"[QuestManager] 골드 보상: {q.rewardGold}");
+                ExperienceManager.Instance?.AddGold(q.rewardGold);
             }
 
             q.status = QuestStatus.Rewarded;
@@ -113,7 +183,6 @@ public class QuestManager : MonoBehaviour
     #region 목표(객체) 업데이트 (핵심)
     /// <summary>
     /// 지정된 퀘스트의 특정 타겟 목표를 업데이트한다.
-    /// (새 구조의 기본 메서드)
     /// </summary>
     public void UpdateObjective(string questId, string targetId, int count)
     {
@@ -132,22 +201,16 @@ public class QuestManager : MonoBehaviour
             }
         }
 
-        if (anyChanged && q.IsCompleted())
+        if (anyChanged)
         {
-            q.status = QuestStatus.Completed;
-            Debug.Log($"[QuestManager] 퀘스트 완료 상태로 전환: {questId}");
+            CheckQuestCompletion(q);
         }
     }
     #endregion
 
-    #region 이전 API 호환성 메서드 (다른 스크립트에서 기존 이름을 그대로 사용 가능하게 함)
-    // 기존 코드에서 많이 쓰이던 형태들을 지원하기 위해 아래 호환 메서드들을 제공합니다.
-    // - UpdateKillProgress(monsterId)
-    // - UpdateItemProgress(itemId, amount)
-    // - UpdateDialogueProgress(npcId)
-
+    #region 이전 API 호환성 메서드
     /// <summary>
-    /// (호환) 몬스터 처치 업데이트 — 모든 ACCEPTED 퀘스트에서 해당 monsterId 목표를 찾아 +1
+    /// 몬스터 처치 업데이트
     /// </summary>
     public void UpdateKillProgress(string monsterId)
     {
@@ -159,19 +222,16 @@ public class QuestManager : MonoBehaviour
 
             foreach (var obj in q.objectives)
             {
-                if (obj.targetId == monsterId && obj.currentCount < obj.requiredCount)
+                if (obj.type == QuestType.Kill && obj.targetId == monsterId && obj.currentCount < obj.requiredCount)
                 {
                     UpdateObjective(q.questId, monsterId, 1);
-                    // 한 퀘스트에서 동일 id의 목표를 여러개 가질 가능성 있으므로 continue가 아닌 break는 조심
-                    // 여기서는 한 퀘스트에서 동일 target이 여러 목표로 중복 등록되는 케이스는 드물다 가정
-                    // 만약 다중 목표 중 여러개를 동시에 올리고 싶다면 break 제거
                 }
             }
         }
     }
 
     /// <summary>
-    /// (호환) 아이템 획득 업데이트 — 모든 ACCEPTED 퀘스트에서 해당 itemId 목표를 찾아 amount 만큼 추가
+    /// 아이템 획득 업데이트 (Collect와 Gather 모두 처리)
     /// </summary>
     public void UpdateItemProgress(string itemId, int amount = 1)
     {
@@ -183,7 +243,13 @@ public class QuestManager : MonoBehaviour
 
             foreach (var obj in q.objectives)
             {
-                if (obj.targetId == itemId && obj.currentCount < obj.requiredCount)
+                // Collect: 현재 인벤토리 개수로 업데이트
+                if (obj.type == QuestType.Collect && obj.targetId == itemId)
+                {
+                    UpdateCollectProgress(q.questId, itemId);
+                }
+                // Gather: 획득한 만큼만 증가
+                else if (obj.type == QuestType.Gather && obj.targetId == itemId && obj.currentCount < obj.requiredCount)
                 {
                     UpdateObjective(q.questId, itemId, amount);
                 }
@@ -192,7 +258,42 @@ public class QuestManager : MonoBehaviour
     }
 
     /// <summary>
-    /// (호환) NPC 대화로 인한 진행 업데이트 — 모든 ACCEPTED 퀘스트에서 해당 npcId 목표를 찾아 +1
+    /// Collect 타입 목표 업데이트 - 현재 인벤토리 개수로 동기화
+    /// </summary>
+    private void UpdateCollectProgress(string questId, string itemId)
+    {
+        if (InventoryManager.Instance == null) return;
+
+        var q = GetQuestData(questId);
+        if (q == null || q.status != QuestStatus.Accepted) return;
+
+        bool anyChanged = false;
+
+        foreach (var obj in q.objectives)
+        {
+            if (obj.type == QuestType.Collect && obj.targetId == itemId)
+            {
+                // 현재 인벤토리 개수 확인
+                int currentAmount = InventoryManager.Instance.GetItemQuantity(itemId);
+                int newCount = Mathf.Min(currentAmount, obj.requiredCount);
+
+                if (newCount != obj.currentCount)
+                {
+                    obj.currentCount = newCount;
+                    anyChanged = true;
+                    Debug.Log($"[QuestManager] [{questId}] Collect 목표 업데이트: {itemId} {obj.currentCount}/{obj.requiredCount}");
+                }
+            }
+        }
+
+        if (anyChanged)
+        {
+            CheckQuestCompletion(q);
+        }
+    }
+
+    /// <summary>
+    /// NPC 대화로 인한 진행 업데이트
     /// </summary>
     public void UpdateDialogueProgress(string npcId)
     {
@@ -204,9 +305,34 @@ public class QuestManager : MonoBehaviour
 
             foreach (var obj in q.objectives)
             {
-                if (obj.targetId == npcId && obj.currentCount < obj.requiredCount)
+                if (obj.type == QuestType.Dialogue && obj.targetId == npcId && obj.currentCount < obj.requiredCount)
                 {
                     UpdateObjective(q.questId, npcId, 1);
+                }
+            }
+        }
+    }
+    #endregion
+
+    #region Collect 타입 전용 메서드
+    /// <summary>
+    /// 모든 진행중인 퀘스트의 Collect 목표를 인벤토리 상태로 갱신
+    /// (아이템을 버렸을 때 호출)
+    /// </summary>
+    public void RefreshAllCollectObjectives()
+    {
+        if (InventoryManager.Instance == null) return;
+
+        foreach (var q in questDictionary.Values)
+        {
+            if (q.status != QuestStatus.Accepted) continue;
+
+            foreach (var obj in q.objectives)
+            {
+                if (obj.type == QuestType.Collect)
+                {
+                    int currentAmount = InventoryManager.Instance.GetItemQuantity(obj.targetId);
+                    obj.currentCount = Mathf.Min(currentAmount, obj.requiredCount);
                 }
             }
         }

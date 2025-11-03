@@ -51,7 +51,7 @@ public class QuestNavigationSystem : MonoBehaviour
     {
         if (NPCInfoManager.Instance == null) return;
 
-        NPCInfo npcInfo = NPCInfoManager.Instance.GetNPCInfo(npcId);
+        Npcs npcInfo = NPCInfoManager.Instance.GetNPCInfo(npcId);
         if (npcInfo == null)
         {
             Debug.LogWarning($"[Navigation] NPC 정보를 찾을 수 없음: {npcId}");
@@ -95,7 +95,7 @@ public class QuestNavigationSystem : MonoBehaviour
     /// <summary>
     /// 다른 맵에 있는 NPC로 가는 경로 표시
     /// </summary>
-    private void ShowMapPathToTarget(NPCInfo npcInfo)
+    private void ShowMapPathToTarget(Npcs npcInfo)
     {
         if (MapInfoManager.Instance == null) return;
 

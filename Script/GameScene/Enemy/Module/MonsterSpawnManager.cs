@@ -1,15 +1,14 @@
-using UnityEngine;
+ï»¿using UnityEngine;
 
 /// <summary>
-/// ¸ó½ºÅÍ ½ºÆù ¿µ¿ª °ü¸® ¸ğµâ
+/// ëª¬ìŠ¤í„° ìŠ¤í° ì˜ì—­ ê´€ë¦¬ ëª¨ë“ˆ (ìˆ˜ì • ë²„ì „)
 /// </summary>
 public class MonsterSpawnManager
 {
     private Transform transform;
-
     public Vector2 spawnPosition { get; private set; }
     public Collider2D spawnAreaCollider { get; private set; }
-    public float movementRadius = 3f;
+    public float movementRadius = 5f; // â­ 3f â†’ 5f (ë” ë„“ì€ ë°°íšŒ ë²”ìœ„)
 
     public MonsterSpawnManager(Transform transform)
     {
@@ -18,42 +17,85 @@ public class MonsterSpawnManager
     }
 
     /// <summary>
-    /// ½ºÆù ¿µ¿ª ¼³Á¤
+    /// ìŠ¤í° ì˜ì—­ ì„¤ì •
     /// </summary>
     public void SetSpawnArea(Collider2D areaCollider)
     {
         spawnAreaCollider = areaCollider;
         spawnPosition = transform.position;
+
+        Debug.Log($"[SpawnManager] ìŠ¤í° ì˜ì—­ ì„¤ì •: {areaCollider?.gameObject.name}");
     }
 
     /// <summary>
-    /// ·£´ı ÀÌµ¿ ¸ñÇ¥ »ı¼º
+    /// ëœë¤ ì´ë™ ëª©í‘œ ìƒì„± (ìŠ¤í° ì˜ì—­ ë‚´ë¡œ ì œí•œ)
     /// </summary>
     public Vector2 GetRandomMoveTarget()
     {
-        Vector2 randomDirection = Random.insideUnitCircle * movementRadius;
-        Vector2 targetPosition = (Vector2)transform.position + randomDirection;
+        Vector2 targetPosition;
 
-        // ½ºÆù ¿µ¿ª ³»·Î Á¦ÇÑ
+        // â­ ìŠ¤í° ì˜ì—­ì´ ì„¤ì •ë˜ì–´ ìˆìœ¼ë©´ ì˜ì—­ ë‚´ì—ì„œë§Œ ëª©í‘œ ìƒì„± â­
         if (spawnAreaCollider != null)
         {
+            Bounds bounds = spawnAreaCollider.bounds;
+
+            // ì˜ì—­ ë‚´ì—ì„œ ëœë¤ ìœ„ì¹˜ ìƒì„± (ìµœëŒ€ 10ë²ˆ ì‹œë„)
+            int maxAttempts = 10;
+            for (int i = 0; i < maxAttempts; i++)
+            {
+                // ì˜ì—­ bounds ë‚´ì—ì„œ ëœë¤ ì„ íƒ
+                float randomX = Random.Range(bounds.min.x, bounds.max.x);
+                float randomY = Random.Range(bounds.min.y, bounds.max.y);
+                Vector2 randomPos = new Vector2(randomX, randomY);
+
+                // ì½œë¼ì´ë” ë‚´ë¶€ì— ìˆëŠ”ì§€ í™•ì¸
+                Vector2 closestPoint = spawnAreaCollider.ClosestPoint(randomPos);
+                float distance = Vector2.Distance(randomPos, closestPoint);
+
+                // ì¶©ë¶„íˆ ë‚´ë¶€ì— ìˆìœ¼ë©´ í•´ë‹¹ ìœ„ì¹˜ ë°˜í™˜
+                if (distance < 0.1f)
+                {
+                    targetPosition = randomPos;
+                    return targetPosition;
+                }
+            }
+
+            // ì‹¤íŒ¨í•˜ë©´ ìŠ¤í° ìœ„ì¹˜ ê·¼ì²˜ë¡œ
+            targetPosition = spawnPosition + (Random.insideUnitCircle * movementRadius);
             targetPosition = ClampToSpawnArea(targetPosition);
         }
+        else
+        {
+            // ìŠ¤í° ì˜ì—­ì´ ì—†ìœ¼ë©´ ìŠ¤í° ìœ„ì¹˜ ê¸°ì¤€ìœ¼ë¡œ ë°˜ê²½ ë‚´ ëœë¤
+            Vector2 randomDirection = Random.insideUnitCircle * movementRadius;
+            targetPosition = spawnPosition + randomDirection;
+        }
 
+        Debug.Log($"[SpawnManager] ë°°íšŒ ëª©í‘œ: {targetPosition}");
         return targetPosition;
     }
 
     /// <summary>
-    /// À§Ä¡¸¦ ½ºÆù ¿µ¿ª ³»·Î Á¦ÇÑ
+    /// ìœ„ì¹˜ë¥¼ ìŠ¤í° ì˜ì—­ ë‚´ë¡œ ì œí•œ
     /// </summary>
     public Vector2 ClampToSpawnArea(Vector2 position)
     {
         if (spawnAreaCollider == null) return position;
-        return spawnAreaCollider.ClosestPoint(position);
+
+        Vector2 clamped = spawnAreaCollider.ClosestPoint(position);
+
+        // ë””ë²„ê·¸: ì˜ì—­ ë°–ìœ¼ë¡œ ë‚˜ê°€ë ¤ëŠ” ì‹œë„ ê°ì§€
+        float distance = Vector2.Distance(position, clamped);
+        if (distance > 0.1f)
+        {
+            Debug.LogWarning($"[SpawnManager] ì˜ì—­ ë°– ìœ„ì¹˜ ë³´ì •: {position} â†’ {clamped} (ê±°ë¦¬: {distance:F2})");
+        }
+
+        return clamped;
     }
 
     /// <summary>
-    /// ½ºÆù ¿µ¿ª ³»¿¡ ÀÖ´ÂÁö È®ÀÎ
+    /// ìŠ¤í° ì˜ì—­ ë‚´ì— ìˆëŠ”ì§€ í™•ì¸
     /// </summary>
     public bool IsInsideSpawnArea(Vector2 position)
     {
@@ -62,20 +104,21 @@ public class MonsterSpawnManager
         Vector2 closest = spawnAreaCollider.ClosestPoint(position);
         float distance = Vector2.Distance(position, closest);
 
-        return distance < 0.05f; // Çã¿ë ¿ÀÂ÷
+        return distance < 0.05f; // í—ˆìš© ì˜¤ì°¨
     }
 
     /// <summary>
-    /// ½ºÆù À§Ä¡·Î º¹±Í°¡ ÇÊ¿äÇÑÁö È®ÀÎ
+    /// ìŠ¤í° ìœ„ì¹˜ë¡œ ë³µê·€ê°€ í•„ìš”í•œì§€ í™•ì¸
     /// </summary>
     public bool ShouldReturnToSpawn(Vector2 currentPosition)
     {
         if (spawnAreaCollider == null) return false;
+
         return !IsInsideSpawnArea(currentPosition);
     }
 
     /// <summary>
-    /// ½ºÆù À§Ä¡±îÁöÀÇ °Å¸® ¹İÈ¯
+    /// ìŠ¤í° ìœ„ì¹˜ê¹Œì§€ì˜ ê±°ë¦¬ ë°˜í™˜
     /// </summary>
     public float GetDistanceFromSpawn(Vector2 currentPosition)
     {
@@ -83,11 +126,12 @@ public class MonsterSpawnManager
     }
 
     /// <summary>
-    /// ½ºÆù ¿µ¿ªÀÇ °¡Àå °¡±î¿î ÁöÁ¡ ¹İÈ¯
+    /// ìŠ¤í° ì˜ì—­ì˜ ê°€ì¥ ê°€ê¹Œìš´ ì§€ì  ë°˜í™˜
     /// </summary>
     public Vector2 GetClosestPointInSpawnArea(Vector2 position)
     {
         if (spawnAreaCollider == null) return spawnPosition;
+
         return spawnAreaCollider.ClosestPoint(position);
     }
 }

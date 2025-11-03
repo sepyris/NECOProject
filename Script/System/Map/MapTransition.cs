@@ -1,6 +1,5 @@
 ﻿using Definitions;
 using UnityEngine;
-// MapTransition.cs (단순화 버전)
 using UnityEngine.EventSystems;
 using UnityEngine.SceneManagement;
 
@@ -16,12 +15,14 @@ public class MapTransition : MonoBehaviour, IPointerDownHandler
 
     private void OnTriggerEnter2D(Collider2D other)
     {
-        // 로그로 우선 충돌 들어오는지 확인
         Debug.Log($"[MapTransition] Trigger entered by '{other.gameObject.name}', tag='{other.gameObject.tag}'");
 
-        // 태그 체크 실패 케이스(자식 콜라이더 등)를 대비해 PlayerController 존재 여부로도 검사
         if (other.CompareTag(Def_Name.PLAYER_TAG) || other.GetComponentInParent<PlayerController>() != null)
         {
+            // **핵심: 씬 전환 직전에 현재 입력 저장**
+            InputManager.SaveInputForSceneTransition();
+            Debug.Log($"[MapTransition] 씬 전환용 입력 저장 완료");
+
             GoToNewScene();
         }
     }
@@ -30,7 +31,6 @@ public class MapTransition : MonoBehaviour, IPointerDownHandler
     {
         Debug.Log($"[MapTransition] GoToNewScene called. targetScene='{targetSceneName}', targetSpawnID='{targetSpawnPointID}', GameDataManager.Instance={(GameDataManager.Instance == null ? "null" : "present")}");
 
-        // 폴백: GameDataManager가 없으면 Resources에서 프리팹을 로드해 인스턴스화 시도
         if (GameDataManager.Instance == null)
         {
             Debug.LogWarning("[MapTransition] GameDataManager.Instance가 null입니다. Resources에서 GameDataManager prefab 로드 시도.");
@@ -52,12 +52,6 @@ public class MapTransition : MonoBehaviour, IPointerDownHandler
             return;
         }
 
-        if (string.IsNullOrEmpty(targetSceneName) || string.IsNullOrEmpty(targetSpawnPointID))
-        {
-            Debug.LogError("[MapTransition] 이동할 씬 이름 또는 스폰 ID가 설정되지 않았습니다!");
-            return;
-        }
-
         // 1. 캐릭터 상태 저장
         PlayerController player = FindObjectOfType<PlayerController>();
         if (player != null)
@@ -70,7 +64,6 @@ public class MapTransition : MonoBehaviour, IPointerDownHandler
         {
             GameDataManager.Instance.currentGlobalData.currentSceneName = targetSceneName;
             GameDataManager.Instance.nextSceneSpawnPointID = targetSpawnPointID;
-
             Debug.Log($"[MapTransition] 다음 씬({targetSceneName}) 스폰 ID 저장: {targetSpawnPointID}");
 
             // 3. 씬 로드 요청
@@ -78,7 +71,6 @@ public class MapTransition : MonoBehaviour, IPointerDownHandler
         }
         else
         {
-            // 안전 폴백: GameDataManager가 없으면 직접 씬 로드 시도 (디버그 목적)
             Debug.LogWarning("[MapTransition] GameDataManager.Instance가 null입니다. SceneManager로 직접 로드 시도.");
             SceneManager.LoadSceneAsync(targetSceneName, LoadSceneMode.Single);
         }

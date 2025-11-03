@@ -1,12 +1,12 @@
 using UnityEngine;
 
 /// <summary>
-/// 몬스터 전투 모듈
+/// 몬스터 전투 모듈 (CSV 데이터 기반)
 /// </summary>
 public class MonsterCombat
 {
     private Transform transform;
-    private MonsterStatsComponent statsComponent;
+    private MonsterController controller;
 
     public float attackRange = 1.5f;
     public float attackCooldown = 2f;
@@ -14,10 +14,10 @@ public class MonsterCombat
 
     private float lastAttackTime = -999f;
 
-    public MonsterCombat(Transform transform, MonsterStatsComponent statsComponent)
+    public MonsterCombat(Transform transform, MonsterController controller)
     {
         this.transform = transform;
-        this.statsComponent = statsComponent;
+        this.controller = controller;
     }
 
     /// <summary>
@@ -36,7 +36,6 @@ public class MonsterCombat
         if (playerTransform == null || !CanAttack()) return false;
 
         float distance = Vector2.Distance(transform.position, playerTransform.position);
-
         if (distance <= attackRange)
         {
             PerformAttack(playerTransform);
@@ -53,9 +52,9 @@ public class MonsterCombat
     {
         lastAttackTime = Time.time;
 
-        if (statsComponent == null)
+        if (controller == null)
         {
-            Debug.LogWarning("[MonsterCombat] MonsterStatsComponent가 없습니다!");
+            Debug.LogWarning("[MonsterCombat] MonsterController가 없습니다!");
             return;
         }
 
@@ -63,7 +62,7 @@ public class MonsterCombat
         var playerStats = target.GetComponent<PlayerStatsComponent>();
         if (playerStats != null)
         {
-            int damage = statsComponent.Stats.attackPower;
+            int damage = controller.GetAttackPower();
             playerStats.Stats.TakeDamage(damage);
             Debug.Log($"[Monster] 플레이어 공격! 데미지: {damage}");
         }
@@ -75,7 +74,6 @@ public class MonsterCombat
     public bool IsInAttackRange(Transform target)
     {
         if (target == null) return false;
-
         float distance = Vector2.Distance(transform.position, target.position);
         return distance <= attackRange;
     }
@@ -86,7 +84,6 @@ public class MonsterCombat
     public bool IsAtPreferredDistance(Transform target)
     {
         if (target == null) return false;
-
         float distance = Vector2.Distance(transform.position, target.position);
         return distance <= preferredAttackDistance;
     }

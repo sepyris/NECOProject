@@ -169,131 +169,11 @@ public class DialogueUIManager : MonoBehaviour
         }
     }
 
-    // ==========================================
-    // 퀘스트 선택 & 일상 대화 통합
-    // ==========================================
-    private void ShowQuestOrDailySelection(NPCController npc, string afterQuestId = null)
-    {
-        List<string> activeQuests = npc.GetActiveQuests();
-
-        // 퀘스트가 전혀 없으면 바로 일상 대화로 전환
-        if (activeQuests == null || activeQuests.Count == 0)
-        {
-            var dailyDialogue = DialogueDataManager.Instance.GetDialogueSequence(npc.npcId, Def_Dialogue.TYPE_DAILY);
-            if (dailyDialogue != null && dailyDialogue.Count > 0)
-                StartCoroutine(RunDialogueSequence(dailyDialogue, showChoicesAfter: false, questId: null));
-            else
-                CloseInteraction();
-            return;
-        }
-
-        questSelectionPanel.SetActive(true);
-
-        foreach (Transform child in questListContainer)
-            Destroy(child.gameObject);
-
-        // 퀘스트 버튼 생성
-        for (int i = 0; i < activeQuests.Count; i++)
-        {
-            string questId = activeQuests[i];
-            QuestData questData = QuestManager.Instance.GetQuestData(questId);
-            if (questData == null) continue;
-
-            GameObject buttonObj = Instantiate(questButtonPrefab, questListContainer);
-            Button button = buttonObj.GetComponent<Button>();
-            TextMeshProUGUI buttonText = buttonObj.GetComponentInChildren<TextMeshProUGUI>();
-
-            QuestStatus status = questData.status;
-            string statusIcon = GetQuestStatusIcon(status);
-            if (buttonText != null)
-                buttonText.text = $"{statusIcon} {questData.questName}";
-
-            string capturedQuestId = questId;
-            button.onClick.AddListener(() =>
-            {
-                Debug.Log($"[DialogueUI] 버튼 클릭됨: {capturedQuestId}");
-                questSelectionPanel.SetActive(false);
-                HandleQuestInteraction(npc, capturedQuestId);
-            });
-        }
-
-        // ⭐ 일상 대화 버튼 항상 추가 (Daily 타입 사용) ⭐
-        GameObject dailyButtonObj = Instantiate(questButtonPrefab, questListContainer);
-        Button dailyButton = dailyButtonObj.GetComponent<Button>();
-        TextMeshProUGUI dailyText = dailyButtonObj.GetComponentInChildren<TextMeshProUGUI>();
-        if (dailyText != null) dailyText.text = "일상 대화";
-
-        dailyButton.onClick.AddListener(() =>
-        {
-            questSelectionPanel.SetActive(false);
-            var dailyDialogue = DialogueDataManager.Instance.GetDialogueSequence(npc.npcId, Def_Dialogue.TYPE_DAILY);
-            if (dailyDialogue != null && dailyDialogue.Count > 0)
-                StartCoroutine(RunDialogueSequence(dailyDialogue, showChoicesAfter: false, questId: null));
-            else
-                CloseInteraction();
-        });
-
-        StartCoroutine(RefreshLayout());
-    }
-
     private IEnumerator RefreshLayout()
     {
         yield return null;
         LayoutRebuilder.ForceRebuildLayoutImmediate(questListContainer as RectTransform);
         Canvas.ForceUpdateCanvases();
-    }
-
-    private string GetQuestStatusIcon(QuestStatus status)
-    {
-        switch (status)
-        {
-            case QuestStatus.Completed: return "[완료]";
-            case QuestStatus.Accepted: return "[진행중]";
-            case QuestStatus.Offered:
-            case QuestStatus.None: return "[새 퀘스트]";
-            case QuestStatus.Rewarded: return "[보상 완료]";
-            default: return "";
-        }
-    }
-
-    // ==========================================
-    // 퀘스트 상태별 처리
-    // ==========================================
-    private void HandleQuestInteraction(NPCController npc, string questId)
-    {
-        Debug.Log($"[DialogueUI] HandleQuestInteraction 호출: {questId}");
-        currentQuestId = questId;
-        QuestStatus status = QuestManager.Instance.GetQuestStatus(questId);
-        Debug.Log($"[DialogueUI] 퀘스트 상태: {status}");
-
-        switch (status)
-        {
-            case QuestStatus.None:
-            case QuestStatus.Offered:
-                // QuestOffer 대화 후 수락/거절 패널 표시
-                StartDialogueSequence(npc.npcId, Def_Dialogue.TYPE_QUEST_OFFER, showChoicesAfter: true, questId: questId);
-                break;
-
-            case QuestStatus.Accepted:
-                // ⭐ 진행 중인 퀘스트 - Quest_Progress 대화 표시 ⭐
-                StartDialogueSequence(npc.npcId, Def_Dialogue.TYPE_QUEST_PROGRESS, showChoicesAfter: false, questId: questId);
-                break;
-
-            case QuestStatus.Completed:
-                StartDialogueSequence(npc.npcId, Def_Dialogue.TYPE_QUEST_COMPLETE, showChoicesAfter: false, questId: questId);
-                QuestManager.Instance.FinalizeQuest(questId);
-                npc.UpdateStatusIcon();
-                break;
-
-            case QuestStatus.Rewarded:
-                // 보상 완료된 퀘스트는 일상 대화로
-                var dailyDialogue = DialogueDataManager.Instance.GetDialogueSequence(npc.npcId, Def_Dialogue.TYPE_DAILY);
-                if (dailyDialogue != null && dailyDialogue.Count > 0)
-                    StartCoroutine(RunDialogueSequence(dailyDialogue, showChoicesAfter: false, questId: null));
-                else
-                    CloseInteraction();
-                break;
-        }
     }
 
     // ==========================================
@@ -377,6 +257,172 @@ public class DialogueUIManager : MonoBehaviour
         {
             StopAllCoroutines();
             CloseInteraction();
+        }
+    }
+
+    /// <summary>
+    /// 퀘스트 상태 아이콘 가져오기 (목표 완료 여부 구분)
+    /// </summary>
+    private string GetQuestStatusIcon(QuestStatus status, QuestData questData = null)
+    {
+        switch (status)
+        {
+            case QuestStatus.Completed:
+                return "[완료]";
+
+            case QuestStatus.Accepted:
+                // ⭐ 목표 완료 여부 확인 ⭐
+                if (questData != null && questData.IsCompleted())
+                {
+                    return "[완료 가능]";
+                }
+                else
+                {
+                    return "[진행중]";
+                }
+
+            case QuestStatus.Offered:
+            case QuestStatus.None:
+                return "[새 퀘스트]";
+
+            case QuestStatus.Rewarded:
+                return "[보상 완료]";
+
+            default:
+                return "";
+        }
+    }
+
+    /// <summary>
+    /// 퀘스트 선택 & 일상 대화 통합 (수정된 버전)
+    /// </summary>
+    private void ShowQuestOrDailySelection(NPCController npc, string afterQuestId = null)
+    {
+        List<string> activeQuests = npc.GetActiveQuests();
+
+        // 퀘스트가 전혀 없으면 바로 일상 대화로 전환
+        if (activeQuests == null || activeQuests.Count == 0)
+        {
+            var dailyDialogue = DialogueDataManager.Instance.GetDialogueSequence(npc.npcId, Def_Dialogue.TYPE_DAILY);
+            if (dailyDialogue != null && dailyDialogue.Count > 0)
+                StartCoroutine(RunDialogueSequence(dailyDialogue, showChoicesAfter: false, questId: null));
+            else
+                CloseInteraction();
+            return;
+        }
+
+        questSelectionPanel.SetActive(true);
+
+        foreach (Transform child in questListContainer)
+            Destroy(child.gameObject);
+
+        // 퀘스트 버튼 생성
+        for (int i = 0; i < activeQuests.Count; i++)
+        {
+            string questId = activeQuests[i];
+            QuestData questData = QuestManager.Instance.GetQuestData(questId);
+            if (questData == null) continue;
+
+            GameObject buttonObj = Instantiate(questButtonPrefab, questListContainer);
+            Button button = buttonObj.GetComponent<Button>();
+            TextMeshProUGUI buttonText = buttonObj.GetComponentInChildren<TextMeshProUGUI>();
+
+            QuestStatus status = questData.status;
+
+            // ⭐ questData를 파라미터로 전달 ⭐
+            string statusIcon = GetQuestStatusIcon(status, questData);
+
+            if (buttonText != null)
+                buttonText.text = $"{statusIcon} {questData.questName}";
+
+            string capturedQuestId = questId;
+            button.onClick.AddListener(() =>
+            {
+                Debug.Log($"[DialogueUI] 버튼 클릭됨: {capturedQuestId}");
+                questSelectionPanel.SetActive(false);
+                HandleQuestInteraction(npc, capturedQuestId);
+            });
+        }
+
+        // 일상 대화 버튼 항상 추가
+        GameObject dailyButtonObj = Instantiate(questButtonPrefab, questListContainer);
+        Button dailyButton = dailyButtonObj.GetComponent<Button>();
+        TextMeshProUGUI dailyText = dailyButtonObj.GetComponentInChildren<TextMeshProUGUI>();
+        if (dailyText != null) dailyText.text = "일상 대화";
+
+        dailyButton.onClick.AddListener(() =>
+        {
+            questSelectionPanel.SetActive(false);
+            var dailyDialogue = DialogueDataManager.Instance.GetDialogueSequence(npc.npcId, Def_Dialogue.TYPE_DAILY);
+            if (dailyDialogue != null && dailyDialogue.Count > 0)
+                StartCoroutine(RunDialogueSequence(dailyDialogue, showChoicesAfter: false, questId: null));
+            else
+                CloseInteraction();
+        });
+
+        StartCoroutine(RefreshLayout());
+    }
+
+    /// <summary>
+    /// 퀘스트 상태별 처리 (수정된 버전)
+    /// </summary>
+    private void HandleQuestInteraction(NPCController npc, string questId)
+    {
+        Debug.Log($"[DialogueUI] HandleQuestInteraction 호출: {questId}");
+        currentQuestId = questId;
+
+        QuestData questData = QuestManager.Instance.GetQuestData(questId);
+        if (questData == null)
+        {
+            Debug.LogError($"[DialogueUI] 퀘스트 데이터를 찾을 수 없음: {questId}");
+            CloseInteraction();
+            return;
+        }
+
+        QuestStatus status = questData.status;
+        Debug.Log($"[DialogueUI] 퀘스트 상태: {status}");
+
+        switch (status)
+        {
+            case QuestStatus.None:
+            case QuestStatus.Offered:
+                // QuestOffer 대화 후 수락/거절 패널 표시
+                StartDialogueSequence(npc.npcId, Def_Dialogue.TYPE_QUEST_OFFER, showChoicesAfter: true, questId: questId);
+                break;
+
+            case QuestStatus.Accepted:
+                // ⭐ 목표 완료 여부에 따라 다른 대화 ⭐
+                if (questData.IsCompleted())
+                {
+                    // 목표 완료 → Complete 대화 + 보상 지급
+                    StartDialogueSequence(npc.npcId, Def_Dialogue.TYPE_QUEST_COMPLETE, showChoicesAfter: false, questId: questId);
+                    //이 시점에 퀘스트에 대한 완료 상태로 만들 필요가있음
+                    QuestManager.Instance.ConfirmedQuestCompletion(questId);
+                    QuestManager.Instance.FinalizeQuest(questId);
+                    npc.UpdateStatusIcon();
+                }
+                else
+                {
+                    // 진행 중 → Progress 대화
+                    StartDialogueSequence(npc.npcId, Def_Dialogue.TYPE_QUEST_PROGRESS, showChoicesAfter: false, questId: questId);
+                }
+                break;
+
+            case QuestStatus.Completed:
+                // 혹시 Completed 상태로 넘어온 경우 (호환성)
+                StartDialogueSequence(npc.npcId, Def_Dialogue.TYPE_QUEST_COMPLETE, showChoicesAfter: false, questId: questId);
+                QuestManager.Instance.FinalizeQuest(questId);
+                npc.UpdateStatusIcon();
+                break;
+
+            case QuestStatus.Rewarded:
+                // 보상 완료된 퀘스트는 일상 대화로
+                var dailyDialogue = DialogueDataManager.Instance.GetDialogueSequence(npc.npcId, Def_Dialogue.TYPE_DAILY);
+                if (dailyDialogue != null && dailyDialogue.Count > 0)
+                    StartCoroutine(RunDialogueSequence(dailyDialogue, showChoicesAfter: false, questId: null));
+                else
+                    CloseInteraction();
+                break;
         }
     }
 }

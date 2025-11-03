@@ -65,7 +65,7 @@ public class GameDataManager : MonoBehaviour
             InventoryManager.Instance.AddItem("sword_iron", 1);
             InventoryManager.Instance.AddItem("quest_letter", 1);
         }
-
+        nextSceneSpawnPointID = "Main_SpawnPoint";
         SaveToFile();
         Debug.Log("[GameDataManager] 새 게임 시작됨 (데이터 초기화)");
     }
@@ -136,31 +136,28 @@ public class GameDataManager : MonoBehaviour
         currentGlobalData.currentSceneName = sceneName;
         StartCoroutine(LoadSceneAndRestore(sceneName));
     }
-
     private IEnumerator LoadSceneAndRestore(string sceneName)
     {
         if (string.IsNullOrEmpty(sceneName))
             sceneName = Def_Name.SCENE_NAME_DEFAULT_MAP;
 
-        // 로딩화면 표시
         if (LoadingScreenManager.Instance != null)
             LoadingScreenManager.Instance.ShowGlobalLoading();
 
-        // 기존 씬 정리
-        yield return StartCoroutine(UnloadPreviousScenes(sceneName));
-
-        // 새 씬 로드
         AsyncOperation asyncLoad = SceneManager.LoadSceneAsync(sceneName, LoadSceneMode.Single);
         while (!asyncLoad.isDone) yield return null;
 
-        // 플레이어 위치 복원
+        Debug.Log($"[DEBUG] 새 씬 로드 완료 시점 ID: {nextSceneSpawnPointID}");
+
         yield return StartCoroutine(HandlePlayerSpawn());
 
-        // 미니맵 초기화
+        // 입력 복원 코드 삭제 - OnSceneLoaded에서 이미 처리했으므로
+        // 단, 입력 클리어는 여기서 수행
+        InputManager.ClearSavedInput();
+
         if (MiniMapManager.Instance != null)
             MiniMapManager.Instance.ReInitialize();
 
-        // 카메라 재설정
         Camera mainCam = Camera.main;
         if (mainCam != null && mainCam.CompareTag(Def_Name.TMPCAMERA_TAG))
             Destroy(mainCam.gameObject);
@@ -169,40 +166,31 @@ public class GameDataManager : MonoBehaviour
         if (cameraCtrl != null)
             cameraCtrl.ReInitialize();
 
-        // 잠시 대기
         yield return new WaitForSeconds(1.0f);
 
-        // 로딩화면 표시
         if (LoadingScreenManager.Instance != null)
             LoadingScreenManager.Instance.HideGlobalLoading();
 
         Debug.Log($"[GameDataManager] 씬 '{sceneName}' 로드 및 복원 완료");
     }
 
-    private IEnumerator UnloadPreviousScenes(string newSceneName)
-    {
-        string prefix = Def_Name.SCENE_NAME_START_MAP;
-        for (int i = SceneManager.sceneCount - 1; i >= 0; i--)
-        {
-            Scene s = SceneManager.GetSceneAt(i);
-            if (s.name == newSceneName) continue;
-
-            if (s.isLoaded && s.name.StartsWith(prefix))
-            {
-                AsyncOperation op = SceneManager.UnloadSceneAsync(s.name);
-                if (op != null)
-                    while (!op.isDone) yield return null;
-            }
-        }
-    }
-
     private IEnumerator HandlePlayerSpawn()
     {
+        Debug.LogError("=== HandlePlayerSpawn 실행됨!!! ===");
+
         PlayerController player = FindObjectOfType<PlayerController>();
-        if (player == null) yield break;
+
+        if (player == null)
+        {
+            Debug.LogError("[HandlePlayerSpawn] PlayerController를 찾을 수 없음! yield break");
+            yield break;
+        }
+
+        Debug.LogWarning($"[HandlePlayerSpawn] PlayerController 찾음: {player.gameObject.name}");
 
         if (!string.IsNullOrEmpty(nextSceneSpawnPointID))
         {
+            Debug.LogWarning($"[HandlePlayerSpawn] 스폰 포인트 검색 시작: {nextSceneSpawnPointID}");
             MapSpawnPoint[] allPoints = FindObjectsOfType<MapSpawnPoint>();
             foreach (var point in allPoints)
             {
@@ -222,6 +210,7 @@ public class GameDataManager : MonoBehaviour
             Debug.Log("[Spawn] 저장된 위치로 복원 완료");
         }
 
+        // 입력 복원 코드 삭제 - OnSceneLoaded에서 이미 처리했으므로
         yield return null;
     }
 

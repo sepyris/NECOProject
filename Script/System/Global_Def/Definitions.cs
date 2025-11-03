@@ -109,16 +109,22 @@ namespace Definitions
     public static class Def_CSV
     {
         // === CSV 파일 이름 (확장자 제외, Resources 바로 아래) ===
-        public const string ITEMS = "items";
-        public const string QUESTS = "QuestData";
-        public const string DIALOGUES = "Dialogue";
         public const string LOCALIZATION = "localization";
+        public const string DIALOGUES = "Dialogue";
+        public const string GATHERABLES = "Gatherable";
+        public const string ITEMS = "Items";
+        public const string MAPINFO = "Maps";
+        public const string MONSTER = "Monster";
+        public const string NPCINFO = "Npcs";
+        public const string QUESTS = "Quest";
 
-        // === 헬퍼 메서드: 에디터 파일 시스템 경로 반환 ===
-        public static string GetEditorPath(string fileName)
-        {
-            return $"{UnityEngine.Application.dataPath}/Resources/{fileName}.csv";
-        }
+        public const string DIALOGUESMENU = "Game Data/Dialogue Database";
+        public const string GATHERABLESMENU = "Game Data/Gatherable Database";
+        public const string ITEMSMENU = "Game Data/items Database";
+        public const string MAPINFOMENU = "Game Data/Maps Database";
+        public const string MONSTERMENU = "Game Data/Monster Database";
+        public const string NPCINFOMENU = "Game Data/Npcs Database";
+        public const string QUESTSMENU = "Game Data/Quest Database";
     }
     public static class Def_Dialogue
     {

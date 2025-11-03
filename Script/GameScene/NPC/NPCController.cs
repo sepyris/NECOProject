@@ -285,10 +285,13 @@ public class NPCController : MonoBehaviour
 
                 case QuestStatus.Completed:
                     // 완료된 퀘스트 - 이 NPC가 목표에 포함되어 있는 경우만 표시
+                    activeQuests.Add(questId);
+                    /*
                     if (IsQuestObjectiveForThisNPC(quest))
                     {
-                        activeQuests.Add(questId);
+                        
                     }
+                    */
                     break;
 
                     // Rewarded 상태는 제외

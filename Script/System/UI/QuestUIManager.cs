@@ -251,7 +251,7 @@ public class QuestUIManager : MonoBehaviour
 
         if (itemText != null)
         {
-            string statusIcon = GetStatusIcon(quest.status);
+            string statusIcon = GetStatusIcon(quest);
             itemText.text = $"{statusIcon} {quest.questName}";
         }
 
@@ -259,24 +259,87 @@ public class QuestUIManager : MonoBehaviour
         itemButton.onClick.AddListener(() => ShowQuestDetail(capturedQuestId));
     }
 
-    private string GetStatusIcon(QuestStatus status)
+    /// <summary>
+    /// 상태 아이콘 가져오기 (목표 완료 여부 구분)
+    /// </summary>
+    private string GetStatusIcon(QuestData quest)
     {
-        switch (status)
+        switch (quest.status)
         {
             case QuestStatus.None:
             case QuestStatus.Offered:
                 return "[시작 가능]";
+
             case QuestStatus.Accepted:
-                return "[진행중]";
+                // ⭐ 목표는 완료했지만 아직 보고 안한 상태 ⭐
+                if (quest.IsCompleted())
+                {
+                    return "[완료 가능]"; // 노란색 또는 특별한 색으로 표시하면 좋음
+                }
+                else
+                {
+                    return "[진행중]";
+                }
+
             case QuestStatus.Completed:
                 return "[완료]";
+
             case QuestStatus.Rewarded:
                 return "[보상 완료]";
+
             default:
                 return "";
         }
     }
+    /// <summary>
+    /// 퀘스트 목표 텍스트 생성 (완료 가능 상태 강조)
+    /// </summary>
+    private string GetQuestObjectives(QuestData quest)
+    {
+        if (quest.objectives == null || quest.objectives.Count == 0)
+            return "목표 정보 없음";
 
+        List<string> objectiveTexts = new List<string>();
+        bool allCompleted = true;
+
+        foreach (var obj in quest.objectives)
+        {
+            string status = obj.IsCompleted ? "[완료]" : "[진행중]";
+            if (!obj.IsCompleted) allCompleted = false;
+
+            string typeText = GetObjectiveTypeText(obj.type);
+            string progress = $" ({obj.currentCount}/{obj.requiredCount})";
+
+            string objectiveText = $"{status} {typeText}: {obj.targetId}{progress}";
+
+            // Dialogue 목표인 경우 NPC 위치 정보 추가
+            if (obj.type == QuestType.Dialogue && !obj.IsCompleted && NPCInfoManager.Instance != null)
+            {
+                Npcs npcInfo = NPCInfoManager.Instance.GetNPCInfo(obj.targetId);
+                if (npcInfo != null)
+                {
+                    objectiveText += $"\n  {npcInfo.npcName}: {npcInfo.GetLocationDescription()}";
+                }
+            }
+
+            objectiveTexts.Add(objectiveText);
+        }
+
+        // ⭐ 모든 목표 완료 시 안내 메시지 추가 ⭐
+        if (allCompleted && quest.status == QuestStatus.Accepted)
+        {
+            objectiveTexts.Add("\n<color=#FFD700>✓ 모든 목표 달성! NPC에게 돌아가세요.</color>");
+        }
+
+        // 추가 힌트 표시
+        string locationHint = quest.GetObjectiveLocationHint();
+        if (!string.IsNullOrEmpty(locationHint))
+        {
+            objectiveTexts.Add($"\n<color=#FFD700>힌트: {locationHint}</color>");
+        }
+
+        return string.Join("\n", objectiveTexts);
+    }
     private void ShowEmptyState()
     {
         if (emptyStatePanel != null)
@@ -355,44 +418,6 @@ public class QuestUIManager : MonoBehaviour
         }
 
         Debug.Log($"[QuestUI] 퀘스트 상세 정보 표시: {questId}");
-    }
-
-    private string GetQuestObjectives(QuestData quest)
-    {
-        if (quest.objectives == null || quest.objectives.Count == 0)
-            return "목표 정보 없음";
-
-        List<string> objectiveTexts = new List<string>();
-
-        foreach (var obj in quest.objectives)
-        {
-            string status = obj.IsCompleted ? "[완료]" : "[진행중]";
-            string typeText = GetObjectiveTypeText(obj.type);
-            string progress = $" ({obj.currentCount}/{obj.requiredCount})";
-
-            string objectiveText = $"{status} {typeText}: {obj.targetId}{progress}";
-
-            // ⭐ Dialogue 목표인 경우 NPC 위치 정보 추가 ⭐
-            if (obj.type == QuestType.Dialogue && !obj.IsCompleted && NPCInfoManager.Instance != null)
-            {
-                NPCInfo npcInfo = NPCInfoManager.Instance.GetNPCInfo(obj.targetId);
-                if (npcInfo != null)
-                {
-                    objectiveText += $"\n  → {npcInfo.npcName}: {npcInfo.GetLocationDescription()}";
-                }
-            }
-
-            objectiveTexts.Add(objectiveText);
-        }
-
-        // ⭐ 추가 힌트 표시 ⭐
-        string locationHint = quest.GetObjectiveLocationHint();
-        if (!string.IsNullOrEmpty(locationHint))
-        {
-            objectiveTexts.Add($"\n<color=#FFD700>힌트: {locationHint}</color>");
-        }
-
-        return string.Join("\n", objectiveTexts);
     }
 
     private string GetObjectiveTypeText(QuestType type)

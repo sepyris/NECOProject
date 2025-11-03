@@ -31,11 +31,11 @@ public class ExperienceManager : MonoBehaviour
             Destroy(gameObject);
         }
     }
-
+   
     /// <summary>
-    /// 플레이어에게 경험치 지급
+    /// 플레이어에게 골드 지급
     /// </summary>
-    public void GiveExperienceToPlayer(int baseAmount)
+    public void AddGold(int baseAmount, bool is_multiple = false)
     {
         if (PlayerController.Instance == null)
         {
@@ -46,8 +46,14 @@ public class ExperienceManager : MonoBehaviour
         var playerStats = PlayerController.Instance.GetComponent<PlayerStatsComponent>();
         if (playerStats != null)
         {
-            int finalAmount = Mathf.RoundToInt(baseAmount * expMultiplier);
-            playerStats.Stats.GainExperience(finalAmount);
+            int finalAmount = baseAmount;
+            //골드 비율 조정,퀘스트는 비율을 정하지 않고 그대로 들어오도록함
+            if (is_multiple)
+            {
+                float randomFactor = Random.Range(1f - goldRandomRange, 1f + goldRandomRange);
+                finalAmount = Mathf.RoundToInt(baseAmount * randomFactor * goldMultiplier);
+            }
+            playerStats.Stats.AddGold(finalAmount);
         }
         else
         {
@@ -56,77 +62,9 @@ public class ExperienceManager : MonoBehaviour
     }
 
     /// <summary>
-    /// 특정 캐릭터에게 경험치 지급
+    /// 플레이어에게 경험치 지급
     /// </summary>
-    public void GiveExperience(CharacterStats stats, int baseAmount)
-    {
-        if (stats == null)
-        {
-            Debug.LogWarning("[ExpManager] CharacterStats가 null입니다.");
-            return;
-        }
-
-        int finalAmount = Mathf.RoundToInt(baseAmount * expMultiplier);
-        stats.GainExperience(finalAmount);
-    }
-
-    /// <summary>
-    /// 몬스터 처치 시 경험치 지급
-    /// </summary>
-    public void GiveExpForMonsterKill(int monsterLevel)
-    {
-        // 몬스터 레벨에 따른 기본 경험치 계산
-        int baseExp = 10 + (monsterLevel * 5);
-        GiveExperienceToPlayer(baseExp);
-    }
-
-    /// <summary>
-    /// 몬스터 처치 시 보상 지급 (경험치 + 골드)
-    /// </summary>
-    public void GiveMonsterRewards(CharacterStats monsterStats)
-    {
-        if (monsterStats == null || PlayerController.Instance == null) return;
-
-        var playerStats = PlayerController.Instance.GetComponent<PlayerStatsComponent>();
-        if (playerStats == null)
-        {
-            Debug.LogWarning("[ExpManager] 플레이어에게 스탯 컴포넌트가 없습니다.");
-            return;
-        }
-
-        // 경험치 보상
-        int rewardExp = monsterStats.rewardExp;
-        if (rewardExp > 0)
-        {
-            int finalExp = Mathf.RoundToInt(rewardExp * expMultiplier);
-            playerStats.Stats.GainExperience(finalExp);
-            Debug.Log($"[Reward] 경험치 획득: {finalExp}");
-        }
-
-        // 골드 보상 (±20% 랜덤)
-        int rewardGold = monsterStats.rewardGold;
-        if (rewardGold > 0)
-        {
-            int finalGold = CalculateRandomGold(rewardGold);
-            playerStats.Stats.AddGold(finalGold);
-            Debug.Log($"[Reward] 골드 획득: {finalGold}");
-        }
-    }
-
-    /// <summary>
-    /// 골드 랜덤 계산 (±20%)
-    /// </summary>
-    private int CalculateRandomGold(int baseGold)
-    {
-        float randomFactor = Random.Range(1f - goldRandomRange, 1f + goldRandomRange);
-        int finalGold = Mathf.RoundToInt(baseGold * randomFactor * goldMultiplier);
-        return Mathf.Max(1, finalGold); // 최소 1골드
-    }
-
-    /// <summary>
-    /// 플레이어에게 골드 지급
-    /// </summary>
-    public void GiveGoldToPlayer(int baseAmount)
+    public void AddExp(int baseAmount, bool is_multiple = false)
     {
         if (PlayerController.Instance == null)
         {
@@ -137,8 +75,14 @@ public class ExperienceManager : MonoBehaviour
         var playerStats = PlayerController.Instance.GetComponent<PlayerStatsComponent>();
         if (playerStats != null)
         {
-            int finalAmount = Mathf.RoundToInt(baseAmount * goldMultiplier);
-            playerStats.Stats.AddGold(finalAmount);
+            int finalAmount = baseAmount;
+            //경험치 비율 조정,퀘스트는 비율을 정하지 않고 그대로 들어오도록함
+            if (is_multiple)
+            {
+                finalAmount = Mathf.RoundToInt(baseAmount * expMultiplier);
+            }
+
+            playerStats.Stats.GainExperience(finalAmount);
         }
         else
         {
@@ -151,7 +95,7 @@ public class ExperienceManager : MonoBehaviour
     /// </summary>
     public void GiveQuestReward(int rewardExp)
     {
-        GiveExperienceToPlayer(rewardExp);
+        AddExp(rewardExp);
         Debug.Log($"[ExpManager] 퀘스트 보상 경험치 지급: {rewardExp}");
     }
 

@@ -1,8 +1,9 @@
+ï»¿using System.Collections;
+using System.Xml.Linq;
 using UnityEngine;
-using System.Collections;
 
 /// <summary>
-/// ¸ó½ºÅÍ AI ¸ğµâ
+/// ëª¬ìŠ¤í„° AI ëª¨ë“ˆ
 /// </summary>
 public class MonsterAI
 {
@@ -11,56 +12,46 @@ public class MonsterAI
     private MonsterCombat combat;
     private MonsterSpawnManager spawnManager;
 
-    // AI ¼³Á¤
-    public bool isAggressive = true;  // ¼±°ø ¿©ºÎ
+    public bool isAggressive;  // ì„ ê³µ ì—¬ë¶€
     public float detectionRange = 5f;
+    private float originalDetectionRange;
 
-    // ¹èÈ¸ ¼³Á¤
     public float minWaitTime = 3f;
-    public float maxWaitTime = 10f;
-    public float idleProbability = 0.2f;
+    public float maxWaitTime = 5f;
+    public float idleProbability = 0.1f;
 
-    // µµ¹ß »óÅÂ
     public float provokedDuration = 8f;
     private float provokedTimeRemaining = 0f;
     private bool isProvoked = false;
-    private bool originalIsAggressive;
+    public bool originalIsAggressive;
 
-    // ±ÍÈ¯ ¼³Á¤
-    public float returnSpeedMultiplier = 0.8f;
     public float returnStopDistance = 0.15f;
     public float returnLerpSpeed = 0.2f;
     private bool isReturning = false;
 
-    // »óÅÂ
     private MonsterState currentState = MonsterState.Idle;
     private Vector2 moveTargetPosition;
     private MonoBehaviour coroutineRunner;
 
     public enum MonsterState { Idle, Wandering, Chasing, Attacking, Returning }
 
-    public MonsterAI(Transform transform, MonsterMovement movement, MonsterCombat combat, MonsterSpawnManager spawnManager)
+    public MonsterAI(Transform transform, MonsterMovement movement, MonsterCombat combat, MonsterSpawnManager spawnManager,bool isAggressive)
     {
         this.transform = transform;
         this.movement = movement;
         this.combat = combat;
         this.spawnManager = spawnManager;
+        this.isAggressive = isAggressive;
         this.originalIsAggressive = isAggressive;
+        this.originalDetectionRange = detectionRange;
 
-        // ÄÚ·çÆ¾ ½ÇÇà¿ë MonoBehaviour Ã£±â
         coroutineRunner = transform.GetComponent<MonsterController>();
         if (coroutineRunner != null)
-        {
             coroutineRunner.StartCoroutine(AIRoutine());
-        }
     }
 
-    /// <summary>
-    /// AI ¾÷µ¥ÀÌÆ® (¸Å ÇÁ·¹ÀÓ)
-    /// </summary>
     public void UpdateAI(Transform playerTransform)
     {
-        // µµ¹ß Å¸ÀÌ¸Ó °¨¼Ò
         if (isProvoked)
         {
             provokedTimeRemaining -= Time.deltaTime;
@@ -68,23 +59,20 @@ public class MonsterAI
             {
                 isProvoked = false;
                 provokedTimeRemaining = 0f;
+                isAggressive = originalIsAggressive;
+                detectionRange = originalDetectionRange;
+                movement.ignoreAreaLimit = false;
+
                 StartReturnToSpawn();
             }
         }
 
-        // ÇÃ·¹ÀÌ¾î °¨Áö ¹× »óÅÂ ÀüÈ¯
         if (playerTransform != null)
-        {
             UpdateStateByPlayer(playerTransform);
-        }
     }
 
-    /// <summary>
-    /// ÇöÀç »óÅÂ ½ÇÇà
-    /// </summary>
     public void ExecuteCurrentState()
     {
-        // ±ÍÈ¯ ¿ì¼± Ã³¸®
         if (isReturning)
         {
             PerformReturn();
@@ -99,15 +87,22 @@ public class MonsterAI
 
             case MonsterState.Wandering:
                 movement.MoveToPosition(moveTargetPosition, 1f);
-                // ¸ñÇ¥ µµÂø ½Ã »óÅÂ º¯°æ
-                if (movement.GetDistanceTo(moveTargetPosition) <= 0.2f)
+
+                if (spawnManager.spawnAreaCollider != null)
                 {
-                    currentState = MonsterState.Idle;
+                    Vector2 currentPos = movement.GetPosition();
+                    if (!spawnManager.IsInsideSpawnArea(currentPos))
+                    {
+                        Debug.LogWarning($"[MonsterAI] ë°°íšŒ ì¤‘ ì˜ì—­ ì´íƒˆ ê°ì§€! ìŠ¤í° ìœ„ì¹˜ë¡œ ëª©í‘œ ë³€ê²½");
+                        moveTargetPosition = spawnManager.spawnPosition;
+                    }
                 }
+
+                if (movement.GetDistanceTo(moveTargetPosition) <= 0.2f)
+                    currentState = MonsterState.Idle;
                 break;
 
             case MonsterState.Chasing:
-                // ChasePlayer´Â UpdateStateByPlayer¿¡¼­ Ã³¸®µÊ
                 break;
 
             case MonsterState.Attacking:
@@ -115,108 +110,165 @@ public class MonsterAI
                 break;
         }
 
-        // ½ºÆù ¿µ¿ª º¹±Í Ã¼Å© (µµ¹ß/±ÍÈ¯ ÁßÀÌ ¾Æ´Ò ¶§)
-        if (!isProvoked && !isReturning)
-        {
+        if (!isProvoked && !isReturning && currentState != MonsterState.Chasing)
             EnsureInsideSpawnArea();
-        }
     }
 
-    /// <summary>
-    /// ÇÃ·¹ÀÌ¾î¿¡ µû¸¥ »óÅÂ ¾÷µ¥ÀÌÆ®
-    /// </summary>
     private void UpdateStateByPlayer(Transform playerTransform)
     {
         float distanceToPlayer = combat.GetDistanceTo(playerTransform);
 
-        // ¼±°øÀÌ°Å³ª µµ¹ß »óÅÂÀÏ ¶§¸¸ ÃßÀû/°ø°İ
+        // ğŸ”¹ ê³µê²©/ë„ë°œ ëª¬ìŠ¤í„°ë§Œ ì²˜ë¦¬
         if (isAggressive || isProvoked)
         {
-            if (combat.IsInAttackRange(playerTransform))
+            // ==========================
+            // â‘  í˜„ì¬ ìƒíƒœë³„ ì²˜ë¦¬
+            // ==========================
+            switch (currentState)
             {
-                currentState = MonsterState.Attacking;
-                combat.TryAttackPlayer(playerTransform);
-            }
-            else if (distanceToPlayer <= detectionRange)
-            {
-                currentState = MonsterState.Chasing;
-                ChasePlayer(playerTransform);
-            }
-            else if (currentState == MonsterState.Chasing && distanceToPlayer > detectionRange * 1.2f)
-            {
-                currentState = MonsterState.Wandering;
+                case MonsterState.Idle:
+                case MonsterState.Wandering:
+                    if (distanceToPlayer <= detectionRange)
+                    {
+                        currentState = MonsterState.Chasing;
+                        Debug.Log("[AI] í”Œë ˆì´ì–´ ê°ì§€ â†’ ì¶”ì  ì‹œì‘");
+                    }
+                    break;
+
+                case MonsterState.Chasing:
+                    if (combat.IsInAttackRange(playerTransform))
+                    {
+                        // âœ… ê³µê²© ë²”ìœ„ ì§„ì… ì‹œ ê³µê²© ìƒíƒœë¡œ ì „í™˜
+                        currentState = MonsterState.Attacking;
+                        movement.Stop(); // ì´ë™ ì™„ì „ ì •ì§€
+                        Debug.Log("[AI] ê³µê²© ë²”ìœ„ ì§„ì… â†’ ê³µê²© ìƒíƒœ ì „í™˜");
+                    }
+                    else
+                    {
+                        ChasePlayer(playerTransform);
+                    }
+                    break;
+
+                case MonsterState.Attacking:
+                    if (!combat.IsInAttackRange(playerTransform))
+                    {
+                        // âœ… ê³µê²© ë²”ìœ„ ë²—ì–´ë‚¨ â†’ ë‹¤ì‹œ ì¶”ì 
+                        currentState = MonsterState.Chasing;
+                        Debug.Log("[AI] ê³µê²© ë²”ìœ„ ì´íƒˆ â†’ ì¶”ì  ìƒíƒœ ì „í™˜");
+                    }
+                    else
+                    {
+                        if (combat.TryAttackPlayer(playerTransform))
+                        {
+                            Debug.Log($"[AI] {transform.name} â†’ í”Œë ˆì´ì–´ ê³µê²© ì‹¤í–‰");
+
+                            // ğŸ”¹ ê³µê²© ì‹œ ë„ë°œ ì‹œê°„ ì´ˆê¸°í™”
+                            if (isProvoked)
+                                provokedTimeRemaining = provokedDuration;
+                        }
+                    }
+                    break;
             }
         }
         else
         {
-            // ºñ¼±°ø: °ø°İ ÁßÀÌ¾ú´Ù°¡ ¸Ö¾îÁö¸é ¹èÈ¸·Î ÀüÈ¯
+            // ğŸ”¸ ë¹„ê³µê²©í˜• ëª¬ìŠ¤í„° (ë„ë°œë„ ì•ˆ ë¨)
             if (currentState == MonsterState.Attacking && !combat.IsInAttackRange(playerTransform))
-            {
                 currentState = MonsterState.Wandering;
-            }
         }
     }
 
-    /// <summary>
-    /// ÇÃ·¹ÀÌ¾î ÃßÀû
-    /// </summary>
+
     private void ChasePlayer(Transform playerTransform)
     {
         Vector2 targetPosition = playerTransform.position;
-
-        // µµ¹ß »óÅÂ°¡ ¾Æ´Ï¸é ½ºÆù ¿µ¿ªÀ¸·Î Á¦ÇÑ
-        if (!isProvoked && spawnManager.spawnAreaCollider != null)
-        {
-            targetPosition = spawnManager.ClampToSpawnArea(targetPosition);
-        }
+        bool ignoreArea = isAggressive || isProvoked;
 
         float distanceToTarget = movement.GetDistanceTo(targetPosition);
-        float stopDistance = Mathf.Max(combat.preferredAttackDistance, 0.1f);
+        float attackRange = combat.preferredAttackDistance; // ëª¬ìŠ¤í„° íƒ€ì…ì— ë”°ë¼ ë‹¤ë¦„
+        float stopDistance = attackRange + 0.1f;            // ê³µê²© ê°œì‹œ ê±°ë¦¬ (ì•½ê°„ ì—¬ìœ )
+        float resumeChaseDistance = attackRange + 0.3f;     // ê³µê²© ì¤‘ ì´ ê±°ë¦¬ ë„˜ìœ¼ë©´ ì¶”ì  ì¬ê°œ
 
-        if (distanceToTarget > stopDistance)
+        // ğŸ”¹ ê³µê²© ì¤‘ì¼ ë•Œ â€” ì¼ì • ê±°ë¦¬ ì´ë‚´ë©´ ê³µê²© ìœ ì§€
+        if (currentState == MonsterState.Attacking)
         {
-            movement.MoveToPosition(targetPosition, 1.5f);
-        }
-        else
-        {
-            // ¼±°øÀÌ°Å³ª µµ¹ß »óÅÂ¸é °ø°İÀ¸·Î ÀüÈ¯
-            if (isAggressive || isProvoked)
+            if (distanceToTarget > resumeChaseDistance)
             {
-                movement.Stop();
-                currentState = MonsterState.Attacking;
+                // ë„ˆë¬´ ë©€ì–´ì§€ë©´ ë‹¤ì‹œ ì¶”ì  ì‹œì‘
+                currentState = MonsterState.Chasing;
+                Debug.Log($"[AI] {transform.name} â†’ ê³µê²© ì¤‘ ê±°ë¦¬ {distanceToTarget:F2}, ì¶”ì ìœ¼ë¡œ ë³µê·€");
             }
             else
             {
+                // ì•„ì§ ì¶©ë¶„íˆ ê°€ê¹Œìš°ë©´ ê³µê²© ìœ ì§€
                 movement.Stop();
-                currentState = MonsterState.Wandering;
+
+                // ğŸ”¸ ê³µê²© ì‹œ ë„ë°œ ì‹œê°„ ê°±ì‹  (ë¹„ì„ ê³µì´ ë§ì€ ìƒíƒœ ìœ ì§€)
+                if (isProvoked)
+                    provokedTimeRemaining = provokedDuration;
+
+                // í”Œë ˆì´ì–´ê°€ ê³µê²© ë²”ìœ„ ì•ˆì´ë©´ ê³„ì† ê³µê²© ì‹œë„
+                if (combat.IsInAttackRange(playerTransform))
+                {
+                    if (combat.TryAttackPlayer(playerTransform))
+                        Debug.Log($"[AI] {transform.name} â†’ ê³µê²© ìœ ì§€ ì¤‘ í”Œë ˆì´ì–´ íƒ€ê²©");
+                }
+
+                return;
+            }
+        }
+
+        // ğŸ”¹ ê³µê²© ê±°ë¦¬ ë°– â€” ì¶”ì  ì¤‘
+        if (distanceToTarget > stopDistance)
+        {
+            movement.MoveToPosition(targetPosition, 1.5f, ignoreArea);
+            currentState = MonsterState.Chasing;
+        }
+        else
+        {
+            // ğŸ”¹ ê³µê²© ë²”ìœ„ ë„ë‹¬ â€” ì´ë™ ë©ˆì¶”ê³  ê³µê²© ì „í™˜
+            movement.Stop();
+            currentState = MonsterState.Attacking;
+
+            // ê³µê²© ì§ì „ ë„ë°œ ì‹œê°„ ê°±ì‹  (ë¹„ì„ ê³µì´ ë§ì€ ìƒíƒœë¼ë©´ ìœ ì§€)
+            if (isProvoked)
+                provokedTimeRemaining = provokedDuration;
+
+            if (combat.IsInAttackRange(playerTransform))
+            {
+                if (combat.TryAttackPlayer(playerTransform))
+                    Debug.Log($"[AI] {transform.name} â†’ í”Œë ˆì´ì–´ ê³µê²© ì‹œì‘");
             }
         }
     }
 
-    /// <summary>
-    /// ½ºÆù ¿µ¿ª ³»·Î ºÎµå·´°Ô º¹±Í
-    /// </summary>
+
     private void EnsureInsideSpawnArea()
     {
+        if (isProvoked)
+            return;
         if (spawnManager.spawnAreaCollider == null) return;
 
         Vector2 currentPos = movement.GetPosition();
-        Vector2 closest = spawnManager.GetClosestPointInSpawnArea(currentPos);
-        float dist = Vector2.Distance(currentPos, closest);
 
-        if (dist > 0.05f)
+        if (!spawnManager.IsInsideSpawnArea(currentPos))
         {
-            movement.SmoothCorrection(closest, returnLerpSpeed);
+            Debug.LogWarning($"[MonsterAI] ì˜ì—­ ì´íƒˆ ê°ì§€! ì¦‰ì‹œ ê·€í™˜");
+
+            moveTargetPosition = spawnManager.spawnPosition;
+            currentState = MonsterState.Wandering;
+
+            Vector2 closest = spawnManager.GetClosestPointInSpawnArea(currentPos);
+            movement.SmoothCorrection(closest, 0.5f);
         }
     }
 
-    /// <summary>
-    /// ½ºÆù À§Ä¡·Î ±ÍÈ¯
-    /// </summary>
     private void PerformReturn()
     {
         Vector2 currentPos = movement.GetPosition();
         Vector2 target = spawnManager.spawnPosition;
+
+        movement.ignoreAreaLimit = true;
 
         if (spawnManager.spawnAreaCollider != null)
         {
@@ -227,81 +279,103 @@ public class MonsterAI
 
         if (dist <= returnStopDistance)
         {
-            // ±ÍÈ¯ ¿Ï·á
             isReturning = false;
+
             movement.Stop();
-            isAggressive = originalIsAggressive;
-            currentState = MonsterState.Idle;
+            movement.SmoothCorrection(target, 1f);
+
+            // ìƒíƒœ ì´ˆê¸°í™”
+            isProvoked = false;
+            movement.ignoreAreaLimit = false;
+
+            // ë¹„ì„ ê³µì´ë©´ ê³µê²©/ì²´ì´ì‹± ìƒíƒœ ì´ˆê¸°í™”
+            if (!originalIsAggressive)
+            {
+                isAggressive = false;
+                currentState = MonsterState.Idle;
+            }
+            else
+            {
+                // ì„ ê³µì€ ê¸°ì¡´ ê³µê²© ìƒíƒœ ìœ ì§€ ê°€ëŠ¥
+                isAggressive = true;
+                // í•„ìš”ì‹œ currentStateëŠ” Chasing í˜¹ì€ Idle íŒë‹¨
+            }
+
+            // ì²´ë ¥ íšŒë³µ
+            var controller = transform.GetComponent<MonsterController>();
+            controller?.RegenerateHealth();
+
+            Debug.Log($"[AI] ê·€í™˜ ì™„ë£Œ â†’ Aggressive: {isAggressive}, Provoked: {isProvoked}");
             return;
         }
 
-        // ºÎµå·´°Ô ÀÌµ¿
-        movement.MoveToPosition(target, returnSpeedMultiplier);
+        movement.MoveToPosition(target, 1.0f, ignoreArea: true);
     }
 
-    /// <summary>
-    /// ·£´ı ¹èÈ¸ ¸ñÇ¥ ¼³Á¤
-    /// </summary>
     private void SetRandomMoveTarget()
     {
         moveTargetPosition = spawnManager.GetRandomMoveTarget();
     }
 
-    /// <summary>
-    /// µµ¹ß »óÅÂ ¼³Á¤ (ÇÃ·¹ÀÌ¾î °ø°İ ¹ŞÀ½)
-    /// </summary>
     public void SetProvoked()
     {
         isProvoked = true;
+        movement.ignoreAreaLimit = true;
         provokedTimeRemaining = provokedDuration;
 
         if (isReturning)
-        {
             isReturning = false;
-        }
 
-        // °­Á¦·Î ¼±°ø ¸ğµå (±ÍÈ¯ ¿Ï·á ½Ã º¹¿ø)
         isAggressive = true;
+
+        if (detectionRange < 5f)
+            detectionRange = 5f;
+
+        if (currentState != MonsterState.Chasing && currentState != MonsterState.Attacking)
+            currentState = MonsterState.Chasing;
     }
 
-    /// <summary>
-    /// ½ºÆù ¿µ¿ªÀ¸·Î ±ÍÈ¯ ½ÃÀÛ
-    /// </summary>
     private void StartReturnToSpawn()
     {
+        if (isReturning) return;
         isReturning = true;
         currentState = MonsterState.Returning;
+
+        Debug.Log("[MonsterAI] ìŠ¤í° ìœ„ì¹˜ë¡œ ê·€í™˜ ì‹œì‘");
+
+        if (!originalIsAggressive)
+        {
+            isAggressive = false; // ë¹„ì„ ê³µ ëª¬ìŠ¤í„°ëŠ” ë„ë°œ ëë‚˜ë©´ ê³µê²© false
+            isProvoked = false;
+            movement.ignoreAreaLimit = false;
+            Debug.Log($"[AI] ë¹„ì„ ê³µ ëª¬ìŠ¤í„° ê·€í™˜ ì‹œì‘ â†’ ë„ë°œ í•´ì œë¨");
+        }
     }
 
-    /// <summary>
-    /// AI ·çÆ¾ (ÄÚ·çÆ¾)
-    /// </summary>
     private IEnumerator AIRoutine()
     {
         while (true)
         {
-            if (currentState != MonsterState.Chasing &&
-                currentState != MonsterState.Attacking &&
-                currentState != MonsterState.Returning)
-            {
-                float randomDuration = Random.Range(minWaitTime, maxWaitTime);
-
-                if (Random.value < idleProbability)
-                {
-                    currentState = MonsterState.Idle;
-                }
-                else
-                {
-                    SetRandomMoveTarget();
-                    currentState = MonsterState.Wandering;
-                }
-
-                yield return new WaitForSeconds(randomDuration);
-            }
-            else
+            if (isProvoked ||
+                currentState == MonsterState.Chasing ||
+                currentState == MonsterState.Attacking ||
+                currentState == MonsterState.Returning)
             {
                 yield return new WaitForSeconds(0.5f);
+                continue;
             }
+
+            float randomDuration = Random.Range(minWaitTime, maxWaitTime);
+
+            if (Random.value < idleProbability)
+                currentState = MonsterState.Idle;
+            else
+            {
+                SetRandomMoveTarget();
+                currentState = MonsterState.Wandering;
+            }
+
+            yield return new WaitForSeconds(randomDuration);
         }
     }
 }

@@ -4,12 +4,12 @@ using System.Collections.Generic;
 
 /// <summary>
 /// 채집 오브젝트(약초, 광석 등)를 자동으로 스폰하고 관리하는 영역
-/// MonsterSpawnArea와 동일한 구조
+/// 여러 종류의 채집물을 랜덤하게 스폰
 /// </summary>
 public class GatheringSpawnArea : MonoBehaviour
 {
     [Header("Spawn Settings")]
-    [SerializeField] private GameObject gatheringPrefab; // 채집 오브젝트 프리팹
+    [SerializeField] private List<GameObject> gatheringPrefabs = new List<GameObject>(); // 채집 오브젝트 프리팹 리스트
     [SerializeField] private int maxGatheringCount = 10; // 최대 채집 오브젝트 수
     [SerializeField] private float spawnInterval = 5f; // 스폰 체크 간격 (초)
     [SerializeField] private int objectsPerSpawn = 1; // 한 번에 스폰할 개수
@@ -42,6 +42,12 @@ public class GatheringSpawnArea : MonoBehaviour
     private void OnValidate()
     {
         EnsureAreaCollider();
+
+        // 프리팹 리스트가 비어있으면 경고
+        if (gatheringPrefabs.Count == 0)
+        {
+            Debug.LogWarning("[GatheringSpawnArea] 채집물 프리팹 리스트가 비어있습니다!");
+        }
     }
 
     private void Reset()
@@ -101,6 +107,13 @@ public class GatheringSpawnArea : MonoBehaviour
 
     void Start()
     {
+        // 채집물 프리팹 리스트 검증
+        if (gatheringPrefabs.Count == 0)
+        {
+            Debug.LogError("[GatheringSpawnArea] 채집물 프리팹 리스트가 비어있습니다. 스폰할 수 없습니다.");
+            return;
+        }
+
         // 초기 스폰
         SpawnGatherings(maxGatheringCount);
 
@@ -149,13 +162,13 @@ public class GatheringSpawnArea : MonoBehaviour
     }
 
     /// <summary>
-    /// 채집 오브젝트 스폰
+    /// 채집 오브젝트 스폰 (랜덤 프리팹 선택)
     /// </summary>
     private void SpawnGatherings(int count)
     {
-        if (gatheringPrefab == null)
+        if (gatheringPrefabs.Count == 0)
         {
-            Debug.LogError("[GatheringSpawnArea] 채집 오브젝트 프리팹이 설정되지 않았습니다!");
+            Debug.LogError("[GatheringSpawnArea] 채집물 프리팹 리스트가 비어있습니다!");
             return;
         }
 
@@ -168,10 +181,20 @@ public class GatheringSpawnArea : MonoBehaviour
                 break;
             }
 
+            // 랜덤 위치
             Vector2 spawnPosition = GetRandomPositionInArea();
 
+            // 랜덤 프리팹 선택
+            GameObject randomPrefab = gatheringPrefabs[Random.Range(0, gatheringPrefabs.Count)];
+
+            if (randomPrefab == null)
+            {
+                Debug.LogError("[GatheringSpawnArea] 프리팹이 null입니다. 리스트를 확인하세요!");
+                continue;
+            }
+
             // 프리팹 인스턴스화
-            GameObject gathering = Instantiate(gatheringPrefab, spawnPosition, Quaternion.identity, gatheringsContainer);
+            GameObject gathering = Instantiate(randomPrefab, spawnPosition, Quaternion.identity, gatheringsContainer);
 
             // 채집 오브젝트에게 스폰 영역 알려주기
             GatheringObject gatheringObj = gathering.GetComponent<GatheringObject>();
@@ -179,9 +202,13 @@ public class GatheringSpawnArea : MonoBehaviour
             {
                 gatheringObj.SetSpawnArea(this);
             }
+            else
+            {
+                Debug.LogError("[GatheringSpawnArea] GatheringObject 컴포넌트를 찾을 수 없습니다!");
+            }
 
             spawnedGatherings.Add(gathering);
-            Debug.Log($"[GatheringSpawnArea] 채집 오브젝트 스폰 완료: {spawnPosition}");
+            Debug.Log($"[GatheringSpawnArea] 채집 오브젝트 스폰 완료: {randomPrefab.name} at {spawnPosition}");
         }
     }
 

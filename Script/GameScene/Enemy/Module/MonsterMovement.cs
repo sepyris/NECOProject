@@ -1,7 +1,9 @@
-using UnityEngine;
+ï»¿using UnityEngine;
+using System.Collections;
+using static MonsterAI;
 
 /// <summary>
-/// ¸ó½ºÅÍ ÀÌµ¿ ¸ğµâ
+/// ëª¬ìŠ¤í„° ì´ë™ ëª¨ë“ˆ
 /// </summary>
 public class MonsterMovement
 {
@@ -13,48 +15,87 @@ public class MonsterMovement
     public float separationStrength = 1.0f;
     public LayerMask separationMask;
 
+    public bool ignoreAreaLimit = false; // ë„ë°œ ìƒíƒœ ë“±ì—ì„œ trueë¡œ
+
+    private Collider2D spawnAreaCollider;
+
     public MonsterMovement(Rigidbody2D rb, Transform transform)
     {
         this.rb = rb;
         this.transform = transform;
 
-        // ±âº» ·¹ÀÌ¾î ¸¶½ºÅ© ¼³Á¤
+        // ê¸°ë³¸ ë ˆì´ì–´ ë§ˆìŠ¤í¬ ì„¤ì •
         separationMask = LayerMask.GetMask("Monster", "Player", "NPC");
     }
 
     /// <summary>
-    /// ¸ñÇ¥ À§Ä¡·Î ÀÌµ¿
+    /// ìŠ¤í° ì˜ì—­ ì„¤ì •
     /// </summary>
-    public void MoveToPosition(Vector2 targetPosition, float speedMultiplier = 1f)
+    public void SetSpawnArea(Collider2D areaCollider)
     {
-        if (rb == null) return;
-
-        Vector2 currentPos = rb.position;
-        Vector2 direction = (targetPosition - currentPos).normalized;
-        float distance = Vector2.Distance(currentPos, targetPosition);
-
-        if (distance > 0.2f)
-        {
-            Vector2 desiredVel = direction * moveSpeed * speedMultiplier;
-            Vector2 separation = ComputeSeparation() * separationStrength;
-            Vector2 finalVel = desiredVel + separation;
-
-            float maxVel = moveSpeed * speedMultiplier * 1.2f;
-            if (finalVel.magnitude > maxVel)
-            {
-                finalVel = finalVel.normalized * maxVel;
-            }
-
-            rb.velocity = finalVel;
-        }
-        else
-        {
-            rb.velocity = Vector2.zero;
-        }
+        spawnAreaCollider = areaCollider;
     }
 
     /// <summary>
-    /// ÀÌµ¿ Á¤Áö
+    /// ëª©í‘œ ìœ„ì¹˜ë¡œ ì´ë™
+    /// </summary>
+    public void MoveToPosition(Vector2 targetPosition, float speedMultiplier = 1f, bool ignoreArea = false)
+    {
+        if (rb == null) return;
+
+        // ğŸ”¸ ì˜ì—­ ì œí•œ ì ìš© (ë„ë°œ ìƒíƒœë‚˜ ignoreArea ì˜µì…˜ì´ falseì¼ ë•Œë§Œ)
+        if (!ignoreAreaLimit && spawnAreaCollider != null && !ignoreArea)
+        {
+            Vector2 clampedTarget = spawnAreaCollider.ClosestPoint(targetPosition);
+            float distanceToOriginal = Vector2.Distance(targetPosition, clampedTarget);
+
+            if (distanceToOriginal > 0.1f)
+            {
+                targetPosition = clampedTarget;
+            }
+        }
+
+        Vector2 currentPos = rb.position;
+        Vector2 toTarget = targetPosition - currentPos;
+        float distance = toTarget.magnitude;
+
+        // ğŸ”¸ ë„ˆë¬´ ê°€ê¹Œìš°ë©´ ì¦‰ì‹œ ì •ì§€ + ìœ„ì¹˜ ë³´ì •
+        if (distance <= 0.25f)
+        {
+            rb.velocity = Vector2.zero;
+            rb.MovePosition(targetPosition); // ğŸ’« ìŠ¤ëƒ… ìœ„ì¹˜
+            return;
+        }
+
+        // ğŸ”¸ ì •ìƒ ì´ë™
+        Vector2 direction = toTarget.normalized;
+        Vector2 desiredVel = direction * moveSpeed * speedMultiplier;
+        Vector2 separation = ComputeSeparation() * separationStrength;
+
+        Vector2 finalVel = desiredVel + separation;
+        float maxVel = moveSpeed * speedMultiplier * 1.2f;
+
+        if (finalVel.magnitude > maxVel)
+            finalVel = finalVel.normalized * maxVel;
+
+        // ğŸ”¸ ì˜ì—­ ê²½ê³„ ë³´ì • (ë¹„ë„ë°œ ìƒíƒœì—ì„œë§Œ)
+        if (!ignoreAreaLimit && spawnAreaCollider != null)
+        {
+            Vector2 nextPos = currentPos + finalVel * Time.fixedDeltaTime;
+            Vector2 clampedNextPos = spawnAreaCollider.ClosestPoint(nextPos);
+
+            if (Vector2.Distance(nextPos, clampedNextPos) > 0.05f)
+            {
+                Vector2 toInside = (clampedNextPos - currentPos).normalized;
+                finalVel = toInside * finalVel.magnitude;
+            }
+        }
+
+        rb.velocity = finalVel;
+    }
+
+    /// <summary>
+    /// ì´ë™ ì •ì§€
     /// </summary>
     public void Stop()
     {
@@ -65,7 +106,7 @@ public class MonsterMovement
     }
 
     /// <summary>
-    /// ÇöÀç À§Ä¡ ¹İÈ¯
+    /// í˜„ì¬ ìœ„ì¹˜ ë°˜í™˜
     /// </summary>
     public Vector2 GetPosition()
     {
@@ -73,7 +114,7 @@ public class MonsterMovement
     }
 
     /// <summary>
-    /// ¸ñÇ¥±îÁöÀÇ °Å¸® ¹İÈ¯
+    /// ëª©í‘œê¹Œì§€ì˜ ê±°ë¦¬ ë°˜í™˜
     /// </summary>
     public float GetDistanceTo(Vector2 targetPosition)
     {
@@ -81,7 +122,7 @@ public class MonsterMovement
     }
 
     /// <summary>
-    /// ÁÖº¯ ´ë»ó°úÀÇ ºĞ¸® º¤ÅÍ °è»ê (°ãÄ§ ¹æÁö)
+    /// ì£¼ë³€ ëŒ€ìƒê³¼ì˜ ë¶„ë¦¬ ë²¡í„° ê³„ì‚° (ê²¹ì¹¨ ë°©ì§€)
     /// </summary>
     private Vector2 ComputeSeparation()
     {
@@ -94,16 +135,13 @@ public class MonsterMovement
         foreach (var col in hits)
         {
             if (col == null) continue;
-
             Rigidbody2D otherRb = col.attachedRigidbody;
             if (otherRb == null || otherRb == rb) continue;
 
             Vector2 diff = rb.position - (Vector2)otherRb.position;
             float dist = diff.magnitude;
-
             if (dist > 0.0001f)
             {
-                // °Å¸® ±â¹İ °¡ÁßÄ¡ (°¡±î¿ï¼ö·Ï °­ÇÏ°Ô)
                 separation += diff.normalized / dist;
                 count++;
             }
@@ -113,16 +151,14 @@ public class MonsterMovement
         {
             separation /= count;
             if (separation.magnitude > 1f)
-            {
                 separation = separation.normalized;
-            }
         }
 
         return separation;
     }
 
     /// <summary>
-    /// À§Ä¡¸¦ ¿µ¿ª ³»·Î Á¦ÇÑ
+    /// ìœ„ì¹˜ë¥¼ ì˜ì—­ ë‚´ë¡œ ì œí•œ
     /// </summary>
     public Vector2 ClampToArea(Vector2 position, Collider2D areaCollider)
     {
@@ -131,7 +167,17 @@ public class MonsterMovement
     }
 
     /// <summary>
-    /// ºÎµå·´°Ô À§Ä¡ º¸Á¤ (¿µ¿ª º¹±Í¿ë)
+    /// ì†ë„ ë„ˆë¬´ ëŠë¦¬ë©´ ë©ˆì¶¤ ì²˜ë¦¬
+    /// </summary>
+    public void ClampVelocity()
+    {
+        if (rb == null) return;
+        if (rb.velocity.magnitude < 0.05f)
+            rb.velocity = Vector2.zero;
+    }
+
+    /// <summary>
+    /// ë¶€ë“œëŸ½ê²Œ ìœ„ì¹˜ ë³´ì • (ì˜ì—­ ë³µê·€ìš©)
     /// </summary>
     public void SmoothCorrection(Vector2 targetPosition, float lerpSpeed = 0.2f)
     {
